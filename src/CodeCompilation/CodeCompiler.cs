@@ -1,10 +1,10 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
+using Mono.Cecil;
 using Serilog;
-using System.IO;
 using System.Reflection;
-using System.Security.Cryptography;
 using System.Text;
 using UnityGameAssemblyPatcher.PatchFramework;
 using UnityGameAssemblyPatcher.Utilities;
@@ -22,44 +22,78 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
 
 
         internal Assembly? Compile(string sourceFilePath, string gamePath)
-        {           
+        {
+            string compiledPatchPath = Path.Combine(gamePath, "CompiledPatches");
+            if (!Directory.Exists(compiledPatchPath))
+                throw new IOException("CompiledPatches folder should exist, but it does not. Was it deleted externally?");
+
+            string compiledPatchFile = Path.Combine(compiledPatchPath, Path.GetFileNameWithoutExtension(sourceFilePath) + ".patch");
+            string checksum = Utils.CalculateMD5Checksum(sourceFilePath);
+
+            if (File.Exists(compiledPatchFile+".md5"))
+            {
+                string compiledChecksum = File.ReadAllText(compiledPatchFile + ".md5");
+                if(compiledChecksum.Equals(checksum, StringComparison.InvariantCultureIgnoreCase))
+                {
+                    return Assembly.LoadFrom(compiledPatchFile);
+                }
+            }
+
             string sourceAsText = File.ReadAllText(sourceFilePath);
             if (string.IsNullOrEmpty(sourceAsText))
             {
                 throw new IOException("Patch file was found, but it was empty.");
             }
+
+            // Base required references for the patch
+            //AddPatchFrameworkRefereneces();
+            //AddGameReferencesAndUnityLibrariesReferences(gamePath);
             AddNetCoreDefaultReferences();
+
+            // Patch referenced libraries
             AddPatchReferences(sourceFilePath);
-            AddGameReferences();
-            AddAssembly(typeof(ACodeInjection));
 
             SyntaxTree syntaxTree = SyntaxFactory.ParseSyntaxTree(sourceAsText.Trim());
             CSharpCompilation compilation = CSharpCompilation.Create("TempPatchSource.cs")
                 .WithOptions(new CSharpCompilationOptions(
-                    OutputKind.DynamicallyLinkedLibrary, 
+                    OutputKind.DynamicallyLinkedLibrary,
                     optimizationLevel: OptimizationLevel.Release))
                 .WithReferences(References)
                 .AddSyntaxTrees(syntaxTree);
-
-            string errorMessage = string.Empty;
-
             using (Stream codeStream = new MemoryStream())
             {
                 EmitResult compilationResult = compilation.Emit(codeStream);
 
                 if (!compilationResult.Success)
                 {
-                    StringBuilder sb = new StringBuilder();
-                    foreach(var diag in compilationResult.Diagnostics)
+                    StringBuilder sb = new();
+                    foreach (var diag in compilationResult.Diagnostics)
                     {
                         sb.AppendLine(diag.ToString());
                     }
-                    errorMessage = sb.ToString();
-                    logger.Error("There was an error compiling the file: \"{0}\".\nError message: {1}", sourceFilePath, errorMessage);
+                    string errorMessage = sb.ToString();
+                    logger.Error("There was an error compiling the file: \"{0}\".\nError message: {1}",
+                        sourceFilePath,
+                        errorMessage);
                     return null;
                 }
-                return Assembly.Load(((MemoryStream)codeStream).ToArray());
+                byte[] assemblyBytes = ((MemoryStream)codeStream).ToArray();
+
+
+                File.WriteAllBytes(compiledPatchFile, assemblyBytes);
+                File.WriteAllText(compiledPatchFile + ".md5", checksum);
+                return Assembly.Load(assemblyBytes);
             }
+        }
+
+        
+
+        private void AddPatchFrameworkRefereneces()
+        {
+            AddAssembly(typeof(Enums.InjectionLocation));
+            AddAssembly(typeof(MethodDefinition));
+            AddAssembly(typeof(AssemblyDefinition));
+            AddAssembly(typeof(ICodeInjection));
         }
 
         private void AddAssemblies(params string[] assemblies)
@@ -95,10 +129,8 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
             }
             catch
             {
-
                 return false;
             }
-
             return true;
         }
 
@@ -109,26 +141,25 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
                 if (References.Any(r => r.FilePath == type.Assembly.Location))
                     return true;
 
-                PortableExecutableReference systemReference = MetadataReference.CreateFromFile(type.Assembly.Location);
+                PortableExecutableReference systemReference = 
+                    MetadataReference.CreateFromFile(type.Assembly.Location);
                 References.Add(systemReference);
             }
             catch
             {
-
                 return false;
             }
-
             return true;
         }
 
-        private void AddGameReferences(string gamePath)
+        private void AddGameReferencesAndUnityLibrariesReferences(string gamePath)
         {
-            string lastFolderPath = Path.GetDirectoryName(gamePath).Split(Path.DirectorySeparatorChar).Last();
-            if (!lastFolderPath.Equals("Managed"))
-                return;
+            string gameAssemblyFolder = Utils.GetGameAssemblyFolder(gamePath);
 
-            AddAssemblies(Directory.GetFiles(gamePath, "*.dll"));
-            throw new NotImplementedException();
+
+            string[] assemblies = Directory.GetFiles(gameAssemblyFolder, "*.dll");
+
+            AddAssemblies(assemblies);
         }
 
 
@@ -150,12 +181,9 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
                 rtPath + "System.Private.CoreLib.dll",
                 rtPath + "System.Runtime.dll",
                 rtPath + "System.Console.dll",
-                rtPath + "netstandard.dll",
-
                 rtPath + "System.Text.RegularExpressions.dll",
                 rtPath + "System.Linq.dll",
                 rtPath + "System.Linq.Expressions.dll",
-
                 rtPath + "System.IO.dll",
                 rtPath + "System.Net.Primitives.dll",
                 rtPath + "System.Net.Http.dll",
@@ -165,6 +193,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
                 rtPath + "System.Globalization.dll",
                 rtPath + "System.Collections.Concurrent.dll",
                 rtPath + "System.Collections.NonGeneric.dll",
+                rtPath + "netstandard.dll",
                 rtPath + "Microsoft.CSharp.dll"
             );
         }

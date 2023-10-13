@@ -1,9 +1,16 @@
-﻿using System.Security.Cryptography;
+﻿using Serilog;
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
+using System.Security.Cryptography;
+using UnityGameAssemblyPatcher.Exceptions;
+using UnityGameAssemblyPatcher.PatchFramework;
 
 namespace UnityGameAssemblyPatcher.Utilities
 {
     internal class Utils
     {
+        private static readonly ILogger logger = Logging.GetInstance();
+
         internal static string[] ParsePatchLibraryReferences(string file)
         {
 
@@ -43,6 +50,209 @@ namespace UnityGameAssemblyPatcher.Utilities
                     return BitConverter.ToString(hash).Replace("-", "").ToLower();
                 }
             }
+        }
+        internal static Type GetEntryTypeOfCompiledPatch(Assembly compiledPatchAssembly)
+        {
+            Type baseType = typeof(ICodeInjection);
+
+            List<Type> derivedTypes = new();
+
+            foreach (Type type in compiledPatchAssembly.GetTypes())
+            {
+                if (baseType.IsAssignableFrom(type) && type != baseType)
+                {
+                    derivedTypes.Add(type);
+                }
+            }
+            if(derivedTypes.Count > 0)
+            {
+                string typesFormattedForError = MulitpleCompiledPatchEntryClassesException.FormatTypesForErrorMessage(derivedTypes);
+                string errorMessage = string.Format("Compiled patch: \"{0}\", found multiple classes of type: {1}. Types found: {2}.",
+                    compiledPatchAssembly, 
+                    typeof(ICodeInjection).Name, 
+                    typesFormattedForError);
+                throw new MulitpleCompiledPatchEntryClassesException(errorMessage);
+            }
+            return derivedTypes[0];
+        }
+
+        internal static void MakeGameFilesInCurrentFolder(string gameName, out bool doesExist)
+        {
+            string gamesFolder = Path.Combine(Directory.GetCurrentDirectory(), "Games");
+            if (!Directory.Exists(gamesFolder))
+            {
+                logger.Verbose("Creating folder for game hashes in current directory.");
+                Directory.CreateDirectory(gamesFolder);
+                doesExist = false;
+                return;
+            }
+            
+            string gameNameHashFile = Path.Combine(gamesFolder, gameName+".md5");
+            doesExist = File.Exists(gameNameHashFile);
+        }
+        internal static void MakeDirectoriesInGameFolder(string gamePath)
+        {
+            string patchSourcePath = Path.Combine(gamePath, "Patches");
+            string patchCompiledPath = Path.Combine(gamePath, "CompiledPatches");
+
+            if (!Directory.Exists(patchSourcePath))
+            {
+                logger.Verbose("\"Patches\" folder didn't exist, creating...");
+                Directory.CreateDirectory(patchSourcePath);
+            }
+            if (!Directory.Exists(patchCompiledPath))
+            {
+                logger.Verbose("\"CompiledPatches\" folder didn't exist, creating...");
+                Directory.CreateDirectory(patchCompiledPath);
+            }
+        }
+
+        internal static string GetGameAssemblyFile(string gamePath)
+        {
+            string assemblyFolder = GetGameAssemblyFolder(gamePath);
+            string gameAssemblyFile = Path.Combine(assemblyFolder, "Assembly-CSharp.dll");
+            if (!File.Exists(gameAssemblyFile))
+            {
+                FileNotFoundException e = new("Assembly-CSharp.dll");
+                logger.Error("");
+                throw e;
+            }
+            return gameAssemblyFile;
+        }
+
+        internal static string GetGameAssemblyFolder(string gamePath)
+        {
+            string? gameDataFolder = Directory.GetDirectories(gamePath)
+                            .FirstOrDefault(path => path.EndsWith(
+                                "_Data",
+                                StringComparison.InvariantCultureIgnoreCase));
+            if (gameDataFolder == null)
+            {
+
+                IOException e = new("No directory that ends with \"_Data\"");
+
+                logger.Error("Could not find \"_Data\" folder for the given game, at the given path: {0}\nError: {1}",
+                    gamePath,
+                    e);
+                throw e;
+            }
+
+            string? gameAssemblyFolder = Directory.GetDirectories(gameDataFolder)
+                .FirstOrDefault(path => path.Equals(
+                    "Managed",
+                    StringComparison.InvariantCultureIgnoreCase));
+            if (gameAssemblyFolder == null)
+            {
+                IOException e = new("No directory the name with \"Managed\"");
+
+                logger.Error("Could not find \"Managed\" folder for the given game, at the given path: {0}\nError: {1}",
+                    gameDataFolder,
+                    e);
+                throw e;
+            }
+            return gameAssemblyFolder;
+        }
+
+        internal static string CalculateMD5ChecksumOfGameAssembly(string gamePath)
+        {            
+            return CalculateMD5Checksum(GetGameAssemblyFile(gamePath));
+        }
+
+        internal static string GetGameName(string gamePath)
+        {
+            string gameFile = Directory.GetFiles(gamePath, "*.exe").First(file => !file.Contains("unity", StringComparison.InvariantCultureIgnoreCase));            
+            return Path.GetFileNameWithoutExtension(gameFile);
+        }
+
+        internal static void BackupGameAssembly(string gamePath)
+        {
+            string gamesFolder = Path.Combine(Directory.GetCurrentDirectory(), "Games");
+            string gamesFolderGameAssemblyFileName = GetGameName(gamePath);
+            string gameAssemblyFile = GetGameAssemblyFile(gamePath);
+            string gameAssemblyBackupFile = Path.Combine(gamesFolder, gamesFolderGameAssemblyFileName);
+            File.WriteAllText(gameAssemblyBackupFile + ".md5", CalculateMD5ChecksumOfGameAssembly(gamePath));
+            File.Copy(gameAssemblyFile, gameAssemblyBackupFile + ".dll", false);
+        }
+
+        internal static void RestoreGameAssembly(string gameName)
+        {
+            string gamesFolder = Path.Combine(Directory.GetCurrentDirectory(), "Games");
+            string gameAssemblyBackupFile = Path.Combine(gamesFolder, gameName);
+
+            if (File.Exists(gameAssemblyBackupFile + ".dll"))
+            {
+                string gameAssemblyFile = GetGameAssemblyFile(gameName);
+                File.Copy(gameAssemblyBackupFile + ".dll", gameAssemblyFile, true);
+                logger.Information("Game assembly restored successfully.");
+            }
+            else
+            {
+                logger.Warning("Backup file not found. Restoration failed.");
+            }
+        }
+
+        internal static bool IsGameAssemblyModified(string gameName)
+        {
+            string gamesFolder = Path.Combine(Directory.GetCurrentDirectory(), "Games");
+            string gameAssemblyFile = GetGameAssemblyFile(gameName);
+            string gameAssemblyBackupFile = Path.Combine(gamesFolder, gameName);
+
+            string gameAssemblyBackupChecksumFile = gameAssemblyBackupFile + ".md5";
+            string currentAssemblyChecksum = CalculateMD5ChecksumOfGameAssembly(gameAssemblyFile);
+
+            if (File.Exists(gameAssemblyBackupChecksumFile))
+            {
+                string storedChecksum = File.ReadAllText(gameAssemblyBackupChecksumFile).Trim();
+
+                if (currentAssemblyChecksum == storedChecksum)
+                {
+                    logger.Information("Game assembly has not been modified.");
+                    return false;
+                }
+                else
+                {
+                    logger.Warning("Game assembly has been modified.");
+                    return true;
+                }
+            }
+            else
+            {
+                logger.Warning("No backup MD5 checksum file found. Assuming the game assembly has not been modified.");
+                return false;
+            }
+        }
+
+        internal static string[] GetAllSourcePatchFiles(string gamePath)
+        {
+            throw new NotImplementedException();
+        }
+
+        internal static T[] ResizeArray<T>(T[] oldArray, int newSize)
+        {
+            T[] newArray = new T[newSize];
+            int elementsToCopy = Math.Min(oldArray.Length, newSize);
+
+            for (int i = 0; i < elementsToCopy; i++)
+            {
+                newArray[i] = oldArray[i];
+            }
+
+            return newArray;
+        }
+        internal static T[] RemoveNullsAndResizeArray<T>(T?[] oldArray, int nullAmount)
+        {
+            int elementsToCopy = oldArray.Length - nullAmount;
+            T[] newArray = new T[elementsToCopy];
+            int index = 0;
+            foreach (T? element in oldArray)
+            {
+                if(element is not null)
+                {
+                    newArray[index] = element;
+                    index++;
+                }
+            }           
+            return newArray;
         }
     }
 }

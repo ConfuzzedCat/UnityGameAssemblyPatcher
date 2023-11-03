@@ -12,7 +12,7 @@ namespace UnityGameAssemblyPatcher.PatchFramework
     {
         public TypeDefinition GetTargetClass(AssemblyDefinition assemblyDefinition)
         {
-            return assemblyDefinition.MainModule.
+            return assemblyDefinition.MainModule.Types.First();
         }
 
         public Dictionary<MethodDefinition, Dictionary<InjectionLocation, MethodDefinition>> GetTargetMethodsAndInfo(AssemblyDefinition assemblyDefinition)

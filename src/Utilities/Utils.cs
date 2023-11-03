@@ -1,4 +1,5 @@
-﻿using Serilog;
+﻿using Mono.Cecil;
+using Serilog;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -253,6 +254,17 @@ namespace UnityGameAssemblyPatcher.Utilities
                 }
             }           
             return newArray;
+        }
+        internal static string? GetTargetVersion(AssemblyDefinition assemblyDefinition)
+        {
+            foreach (var i in assemblyDefinition.CustomAttributes)
+            {
+                if (i.AttributeType.Name.Equals("TargetFrameworkAttribute"))
+                {
+                    return i.ConstructorArguments.First().Value.ToString();
+                }
+            }
+            return string.Empty;
         }
     }
 }

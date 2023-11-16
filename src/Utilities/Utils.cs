@@ -2,9 +2,12 @@
 using Serilog;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
+using System.Text;
 using UnityGameAssemblyPatcher.Exceptions;
 using UnityGameAssemblyPatcher.PatchFramework;
+using UnityGameAssemblyPatcher.Utilities;
 
 namespace UnityGameAssemblyPatcher.Utilities
 {
@@ -12,9 +15,8 @@ namespace UnityGameAssemblyPatcher.Utilities
     {
         private static readonly ILogger logger = Logging.GetInstance();
 
-        internal static string[] ParsePatchLibraryReferences(string file)
+        internal static string[] GetHeaderCommentLines(string file)
         {
-
             if (!File.Exists(file))
             {
                 throw new FileNotFoundException("Couldn't find source file.", file);
@@ -22,23 +24,151 @@ namespace UnityGameAssemblyPatcher.Utilities
 
             string[] fileLines = File.ReadAllLines(file);
 
-            List<string> assemblyNames = new();
-            foreach (string line in fileLines)
+            List<string> lines = new();
+            bool hasCommentStarted = false;
+            int index = 0;
+            while (true)
             {
+                string line = fileLines[index].Trim();
                 if (line.StartsWith("namespace") || line.StartsWith("class") || line.StartsWith("{"))
                 {
                     break;
                 }
-                if (line.StartsWith("/*") || line.StartsWith("*/"))
+                if (line.StartsWith("*/"))
                 {
-                    continue;
+                    break;
                 }
+                if (hasCommentStarted)
+                {
+                    lines.Add(line);
+                }
+                if(!hasCommentStarted && line.StartsWith("/*"))
+                {
+                    hasCommentStarted = true;
+                }
+                index++;
+            }
+
+            return lines.ToArray();
+        }
+        internal static string ParsePatchName(string file, string checksum)
+        {
+            string[] commentLines = GetHeaderCommentLines(file);
+            return ParsePatchName(commentLines, checksum);
+        }
+
+        internal static string ParsePatchName(string[] commentLines, string checksum)
+        {
+            foreach (string line in commentLines)
+            {
+                if (line.StartsWith("@Name="))
+                {
+                    return line.Replace("@Name=", "").Trim();
+                }
+            }
+            return $"UnnamedPatch({checksum})";
+        }
+
+        internal static string[] ParsePatchLibraryReferences(string file)
+        {
+
+            string[] commentLines = GetHeaderCommentLines(file);
+            return ParsePatchLibraryReferences(commentLines);
+        }
+
+        internal static string[] ParsePatchLibraryReferences(string[] commentLines)
+        {
+            List<string> assemblyNames = new();
+            foreach (string line in commentLines)
+            {
                 if (line.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
                 {
-                    assemblyNames.Add(line.Trim());
+                    assemblyNames.Add(line);
                 }
             }
             return assemblyNames.ToArray();
+        }
+
+        internal static (string[] references, string name, string targetFramework) ParsePatchComments(string file, string checksum)
+        {
+            (string[] references, 
+            string name, 
+            string targetFramework) 
+                returnTruple = new();
+
+            string[] lines = GetHeaderCommentLines(file);
+
+
+            returnTruple.references = ParsePatchLibraryReferences(lines);
+            returnTruple.name = ParsePatchName(lines, checksum);
+            returnTruple.targetFramework = ParsePatchTargetFramework(lines);
+            return returnTruple;
+        }
+
+        internal static string ParsePatchTargetFramework(string[] lines)
+        {
+            foreach (string line in lines)
+            {
+                if (line.StartsWith("@TargetFramework="))
+                {
+                    return line.Replace("@TargetFramework=", "").Trim();
+                }
+            }
+
+            string? version = Assembly.GetExecutingAssembly()
+                .GetCustomAttribute<TargetFrameworkAttribute>()?
+                .FrameworkName;
+            if(version is null)
+            {
+                throw new NullReferenceException("Couldn't resolve Target Framework of both patch and this program.");
+            }
+            return version;
+        }
+
+        internal static string GetSourceCode(string file, string targetFramework)
+        { 
+            return GetSourceCode(
+                File.ReadAllLines(file), 
+                targetFramework);
+        }
+        internal static string GetSourceCode(string[] lines, string targetFramework)
+        {
+            StringBuilder sb = new StringBuilder();
+            bool isCode = false;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i].Trim();
+                bool usinglineFlag = line.Contains("using ");
+                bool namespaceLineFlag = line.Contains("namespace ");
+                bool classLineFlag = line.Contains("class ");
+
+                bool flag = usinglineFlag || namespaceLineFlag || classLineFlag;
+
+                if (flag && !isCode)
+                {
+                    isCode = true;
+                }
+                if (isCode)
+                {
+                    if (namespaceLineFlag)
+                    {
+                        /*
+                        if (targetFramework.Contains(".NETFramework"))
+                        {
+                            sb.AppendLine("using System.Reflection;");
+                        }
+                        else
+                        {
+                        }
+                        */
+                        sb.AppendLine("using System.Runtime.Versioning;");
+                        sb.AppendLine($"[assembly:TargetFramework(\"{targetFramework}\")]");
+                    }
+                    sb.AppendLine(line);
+                }
+            }
+            Console.WriteLine(sb.ToString());
+            return sb.ToString();
         }
 
         internal static string CalculateMD5Checksum(string file)
@@ -261,7 +391,7 @@ namespace UnityGameAssemblyPatcher.Utilities
             {
                 if (i.AttributeType.Name.Equals("TargetFrameworkAttribute"))
                 {
-                    return i.ConstructorArguments.First().Value.ToString();
+                    return (string)i.ConstructorArguments[0].Value;
                 }
             }
             return string.Empty;

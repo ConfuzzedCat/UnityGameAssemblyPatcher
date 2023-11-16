@@ -1,23 +1,30 @@
 ﻿using Mono.Cecil;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using UnityGameAssemblyPatcher.Enums;
+using System.Collections.Generic;
+using HarmonyLib;
+using System.Reflection;
 
 namespace UnityGameAssemblyPatcher.PatchFramework
 {
-    internal class ExampleCodeInjection : ICodeInjection
+    class ExampleCodeInjection : ICodeInjection
     {
-        public TypeDefinition GetTargetClass(AssemblyDefinition assemblyDefinition)
+        public (MethodInfo? PatchMethod, InjectionLocation injectionLocation) GetPatchMethod()
         {
-            return assemblyDefinition.MainModule.Types.First();
+            return (typeof(ExampleCodeInjection).GetMethod(nameof(PatchingMethod)), InjectionLocation.Postfix);
         }
 
-        public Dictionary<MethodDefinition, Dictionary<InjectionLocation, MethodDefinition>> GetTargetMethodsAndInfo(AssemblyDefinition assemblyDefinition)
+        public Type? GetTargetClass(Assembly assembly)
         {
-            throw new NotImplementedException();
+            return assembly.GetType("SomeClass");
+        }
+
+        public MethodInfo? GetTargetMethod(Assembly assembly)
+        {
+            return GetTargetClass(assembly)?.GetMethod("SomeMethod");
+        }
+        public void PatchingMethod()
+        {
+
         }
     }
 }

@@ -1,4 +1,5 @@
-﻿using Microsoft.CodeAnalysis;
+﻿using HarmonyLib.Tools;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Emit;
@@ -21,45 +22,57 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
         private readonly HashSet<PortableExecutableReference> References = new();
 
 
-        internal Assembly? Compile(string sourceFilePath, string gamePath)
+        internal PatchInfo Compile(string sourceFilePath, string gamePath)
         {
-            string compiledPatchPath = Path.Combine(gamePath, "CompiledPatches");
-            if (!Directory.Exists(compiledPatchPath))
-                throw new IOException("CompiledPatches folder should exist, but it does not. Was it deleted externally?");
-
-            string compiledPatchFile = Path.Combine(compiledPatchPath, Path.GetFileNameWithoutExtension(sourceFilePath) + ".patch");
+            string compiledPatchFile = Path.Combine(Directory.GetCurrentDirectory(), Path.GetFileNameWithoutExtension(sourceFilePath) + ".patch");
             string checksum = Utils.CalculateMD5Checksum(sourceFilePath);
 
-            if (File.Exists(compiledPatchFile+".md5"))
+            var info = Utils.ParsePatchComments(sourceFilePath, checksum);
+
+            string patchName = info.name;
+            string patchDesc = "";
+            if (!string.IsNullOrEmpty(gamePath))
             {
-                string compiledChecksum = File.ReadAllText(compiledPatchFile + ".md5");
-                if(compiledChecksum.Equals(checksum, StringComparison.InvariantCultureIgnoreCase))
+                string compiledPatchPath = Path.Combine(gamePath, "CompiledPatches");
+                if (!Directory.Exists(compiledPatchPath))
+                    throw new IOException("CompiledPatches folder should exist, but it does not. Was it deleted externally?");
+
+                compiledPatchFile = Path.Combine(compiledPatchPath, Path.GetFileNameWithoutExtension(sourceFilePath) + ".patch");
+
+                if (File.Exists(compiledPatchFile+".md5"))
                 {
-                    return Assembly.LoadFrom(compiledPatchFile);
+                    string compiledChecksum = File.ReadAllText(compiledPatchFile + ".md5");
+                    if(compiledChecksum.Equals(checksum, StringComparison.InvariantCultureIgnoreCase))
+                    {
+                        Assembly _assembly = Assembly.LoadFrom(compiledPatchFile);
+                        return new PatchInfo(patchName, patchDesc, checksum, _assembly);
+                    }
                 }
             }
 
-            string sourceAsText = File.ReadAllText(sourceFilePath);
+            Console.WriteLine("getting sources code");
+            string sourceAsText = Utils.GetSourceCode(sourceFilePath, info.targetFramework);
             if (string.IsNullOrEmpty(sourceAsText))
             {
                 throw new IOException("Patch file was found, but it was empty.");
             }
 
             // Base required references for the patch
-            //AddPatchFrameworkRefereneces();
+            AddPatchFrameworkRefereneces();
             //AddGameReferencesAndUnityLibrariesReferences(gamePath);
             AddNetCoreDefaultReferences();
 
             // Patch referenced libraries
-            AddPatchReferences(sourceFilePath);
+            AddPatchReferences(info.references);
 
             SyntaxTree syntaxTree = SyntaxFactory.ParseSyntaxTree(sourceAsText.Trim());
-            CSharpCompilation compilation = CSharpCompilation.Create("TempPatchSource.cs")
+            CSharpCompilation compilation = CSharpCompilation.Create(patchName)
                 .WithOptions(new CSharpCompilationOptions(
                     OutputKind.DynamicallyLinkedLibrary,
                     optimizationLevel: OptimizationLevel.Release))
                 .WithReferences(References)
                 .AddSyntaxTrees(syntaxTree);
+            
             using (Stream codeStream = new MemoryStream())
             {
                 EmitResult compilationResult = compilation.Emit(codeStream);
@@ -75,14 +88,22 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
                     logger.Error("There was an error compiling the file: \"{0}\".\nError message: {1}",
                         sourceFilePath,
                         errorMessage);
-                    return null;
+
+                    throw new NullReferenceException(
+                        string.Format("There was an error compiling the file: \"{0}\".\nError message: {1}",
+                            sourceFilePath,
+                            errorMessage));
                 }
                 byte[] assemblyBytes = ((MemoryStream)codeStream).ToArray();
 
+                Assembly assembly = Assembly.Load(assemblyBytes);
+
 
                 File.WriteAllBytes(compiledPatchFile, assemblyBytes);
-                File.WriteAllText(compiledPatchFile + ".md5", checksum);
-                return Assembly.Load(assemblyBytes);
+                //File.WriteAllText(compiledPatchFile + ".md5", checksum);
+                logger.Information("Compiled patch: {0} - checksum:{1}", patchName, checksum);
+                Console.WriteLine("Compiled patch: {0} - checksum:{1}", patchName, checksum);
+                return new PatchInfo(patchName, patchDesc, checksum, assembly);
             }
         }
 
@@ -94,6 +115,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
             AddAssembly(typeof(MethodDefinition));
             AddAssembly(typeof(AssemblyDefinition));
             AddAssembly(typeof(ICodeInjection));
+            AddAssembly(typeof(HarmonyLib.Harmony));
         }
 
         private void AddAssemblies(params string[] assemblies)
@@ -171,12 +193,18 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
                 return;
             AddAssemblies(references);
         }
+        private void AddPatchReferences(string[] references)
+        {
+            //string[] references = Utils.ParsePatchLibraryReferences(file);
 
+            if(references.Length == 0) 
+                return;
+            AddAssemblies(references);
+        }
         private void AddNetCoreDefaultReferences()
         {
             string rtPath = Path.GetDirectoryName(typeof(object).Assembly.Location) +
                  Path.DirectorySeparatorChar;
-
             AddAssemblies(
                 rtPath + "System.Private.CoreLib.dll",
                 rtPath + "System.Runtime.dll",
@@ -191,7 +219,9 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
                 rtPath + "System.Reflection.dll",
                 rtPath + "System.ComponentModel.Primitives.dll",
                 rtPath + "System.Globalization.dll",
+                rtPath + "System.Collections.dll",
                 rtPath + "System.Collections.Concurrent.dll",
+                rtPath + "System.Collections.Generic.dll",
                 rtPath + "System.Collections.NonGeneric.dll",
                 rtPath + "netstandard.dll",
                 rtPath + "Microsoft.CSharp.dll"

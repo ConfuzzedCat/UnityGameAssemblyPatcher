@@ -41,7 +41,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
             Patch(gamePath);
         }
 
-        internal void Patch(string gamePath)
+        private void Patch(string gamePath)
         {
             logger.Information("Patching game at given path: {0}", gamePath);
 
@@ -53,25 +53,27 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
                 Utils.BackupGameAssembly(gamePath);
             
             gameAssembly = Assembly.LoadFrom(Utils.GetGameAssemblyFile(gamePath));
-            Assembly[] compiledPatches = CompilePatches(gamePath);
-
-
+            foreach (var patch in CompilePatches(gamePath))
+            {
+                // Do stuff
+                
+            }
 
         }
-        private Assembly[] CompilePatches(string gamePath)
+
+        private IEnumerable<PatchInfo> CompilePatches(string gamePath)
         {
             logger.Information("Compiling patches. Only new files will be compiled.");
             string[] sourceFiles = Utils.GetAllSourcePatchFiles(gamePath);
-            int nullAssembliesAmount = 0;
-            Assembly?[] patchesWithNulls = new Assembly?[sourceFiles.Length];
+            //PatchInfo?[] patchesWithNulls = new PatchInfo?[sourceFiles.Length];
             for (int i = 0; i < sourceFiles.Length; i++)
             {
-                Assembly? a = new CodeCompiler().Compile(sourceFiles[i], gamePath);
-                if(a is null)
-                    nullAssembliesAmount++;
-                patchesWithNulls[i] = a;
+                PatchInfo? a = new CodeCompiler().Compile(sourceFiles[i], gamePath);
+                if (a is null)
+                    continue;
+                yield return a;
             }
-            return Utils.RemoveNullsAndResizeArray(patchesWithNulls, nullAssembliesAmount);
+            //return Utils.RemoveNullsAndResizeArray(patchesWithNulls, nullAssembliesAmount);
         }
         private void ApplyPatch(Assembly patch)
         {

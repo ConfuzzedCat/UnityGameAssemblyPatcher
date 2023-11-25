@@ -1,9 +1,13 @@
 ﻿
 using HarmonyLib;
 using Mono.Cecil;
+using System;
 using System.Reflection;
 using System.Runtime.Versioning;
 using UnityGameAssemblyPatcher.CodeCompilation;
+using UnityGameAssemblyPatcher.Enums;
+using UnityGameAssemblyPatcher.PatchFramework;
+using UnityGameAssemblyPatcher.src.CodeCompilation;
 using UnityGameAssemblyPatcher.Utilities;
 
 namespace UnityGameAssemblyPatcher
@@ -18,27 +22,43 @@ namespace UnityGameAssemblyPatcher
             string code = @"
 /*
 This is the header of the patch
-@Name=ThisIsTheNameOfThePatch 
+@Name=This Is The Name Of The Patch 
 */
 
 using System;
-using System.Collections.Generic;
-using Mono.Cecil;
+using System.Reflection;
 using HarmonyLib;
+using UnityGameAssemblyPatcher.PatchFramework;
+using UnityGameAssemblyPatcher.Enums;
 namespace TestSpace
 {
-    [HarmonyPatch(""UnityGameAssemblyPatcher.TestingGroundsClass"", ""UnityGameAssemblyPatcher.TestingGroundsClass.MethodSetValue"")]
-    class TestClass
+    
+    class TestClass : ICodeInjection
     {
-        static void Postfix(string _value, ref string ___Value)
+//#nullable enable
+        public (MethodInfo? PatchMethod, InjectionLocation injectionLocation) GetPatchMethod()
         {
-            Console.WriteLine(""Hello, This is from the test code after it is compiled."");
-            ___Value = ""patched value"";
+            return (typeof(TestClass).GetMethod(nameof(PatchingMethod)), InjectionLocation.Postfix);
+        }
+
+        public Type? GetTargetClass(Assembly assembly)
+        {
+            return assembly.GetType(""Pickup"");
+        }
+
+        public MethodInfo? GetTargetMethod(Assembly assembly)
+        {
+            return GetTargetClass(assembly).GetMethod(""Start"", BindingFlags.NonPublic | BindingFlags.Instance);
+        }
+//#nullable disable
+        public static void PatchingMethod(string _value, ref string ___Value)
+        {
+            ___Value = ""patched value from compiled patch..."";
+            Console.WriteLine(""Hello from patching method."");
         }
     }
 }
             ";
-
 
             File.WriteAllText(sourceFile, code);
 
@@ -53,17 +73,13 @@ namespace TestSpace
 
             if (Patch != null)
             {
-                TestingGroundsClass testingGrounds = new TestingGroundsClass();
-                Console.WriteLine("Before patch.");
-                testingGrounds.MethodSetValue("unpatched value!");
-                testingGrounds.SomeMethod();
-                var assemblyType = Patch.Assembly.GetType("TestSpace.TestClass");
-                MethodInfo methodInfo = assemblyType.GetMethod("Postfix", BindingFlags.Static | BindingFlags.NonPublic);
-                harmony.Patch(typeof(TestingGroundsClass).GetMethod(nameof(TestingGroundsClass.MethodSetValue)), postfix: new HarmonyMethod(methodInfo));
-                //methodInfo.Invoke(new object(), null);
-                Console.WriteLine("After patch");
-                testingGrounds.MethodSetValue("unpatched another value!");
-                testingGrounds.SomeMethod();
+                AssemblyDefinition game = AssemblyDefinition.ReadAssembly(Path.Combine(Directory.GetCurrentDirectory(), "Assembly-Csharp.dll"));
+                ICodeInjection assemblyInstance = new ExampleCodeInjection(); //(ICodeInjection)Patch.Assembly.CreateInstance("TestSpace.TestClass");
+                var targetType = assemblyInstance.GetTargetClass(game);
+                var targetMethod = assemblyInstance.GetTargetMethod(game);
+                (MethodDefinition PatchMethod, InjectionLocation injectionLocation) patchingMethodTuple = assemblyInstance.GetPatchMethod();
+                ILMachine.Emit(targetMethod, patchingMethodTuple.PatchMethod, patchingMethodTuple.injectionLocation);
+
             }
 
             foreach (var assemblyFile in Directory.GetFiles(Directory.GetCurrentDirectory(), "*.dll"))
@@ -86,7 +102,7 @@ namespace TestSpace
 
     public class TestingGroundsClass
     {
-        public string Value = string.Empty;
+        public string Value = "Hello!";
         
         public void MethodSetValue(string _value)
         {

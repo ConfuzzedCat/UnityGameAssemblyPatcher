@@ -1,14 +1,12 @@
-﻿using HarmonyLib;
-using Mono.Cecil;
-using System.Reflection;
+﻿using System.Reflection;
 using UnityGameAssemblyPatcher.Enums;
-
+using Mono.Cecil;
 namespace UnityGameAssemblyPatcher.PatchFramework
 {
     public interface ICodeInjection
     {
-        public Type? GetTargetClass(Assembly assembly);
-        public MethodInfo? GetTargetMethod(Assembly assembly);
-        public (MethodInfo? PatchMethod, InjectionLocation injectionLocation) GetPatchMethod();
+        public (MethodDefinition PatchMethod, InjectionLocation injectionLocation) GetPatchMethod();
+        public TypeDefinition GetTargetClass(AssemblyDefinition assembly);
+        public MethodDefinition GetTargetMethod(AssemblyDefinition assembly);
     }
 }

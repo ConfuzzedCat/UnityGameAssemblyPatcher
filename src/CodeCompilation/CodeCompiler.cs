@@ -111,10 +111,9 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
 
         private void AddPatchFrameworkRefereneces()
         {
-            AddAssembly(typeof(Enums.InjectionLocation));
-            AddAssembly(typeof(MethodDefinition));
-            AddAssembly(typeof(AssemblyDefinition));
+            AddAssembly(GetType());
             AddAssembly(typeof(ICodeInjection));
+            AddAssembly(typeof(Enums.InjectionLocation));
             AddAssembly(typeof(HarmonyLib.Harmony));
         }
 

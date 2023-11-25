@@ -387,6 +387,16 @@ namespace UnityGameAssemblyPatcher.Utilities
         }
         internal static string? GetTargetVersion(AssemblyDefinition assemblyDefinition)
         {
+            Console.WriteLine("\n\n");
+
+            foreach (var typeDefinition in assemblyDefinition.MainModule.Types)
+            {
+                Console.WriteLine(typeDefinition.Name);
+            }
+
+            Console.WriteLine("\n\n");
+
+
             foreach (var i in assemblyDefinition.CustomAttributes)
             {
                 if (i.AttributeType.Name.Equals("TargetFrameworkAttribute"))

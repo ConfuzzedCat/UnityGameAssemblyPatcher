@@ -1,30 +1,32 @@
 ﻿using Mono.Cecil;
 using UnityGameAssemblyPatcher.Enums;
-using System.Collections.Generic;
-using HarmonyLib;
-using System.Reflection;
+using UnityGameAssemblyPatcher.Extensions;
 
 namespace UnityGameAssemblyPatcher.PatchFramework
 {
     class ExampleCodeInjection : ICodeInjection
     {
-        public (MethodInfo? PatchMethod, InjectionLocation injectionLocation) GetPatchMethod()
+#nullable enable
+        public (MethodDefinition PatchMethod, InjectionLocation injectionLocation) GetPatchMethod()
         {
-            return (typeof(ExampleCodeInjection).GetMethod(nameof(PatchingMethod)), InjectionLocation.Postfix);
+            return (typeof(ExampleCodeInjection).GetMethod(nameof(PatchingMethod)).ToDefinition(), InjectionLocation.Postfix);
         }
 
-        public Type? GetTargetClass(Assembly assembly)
+        public TypeDefinition GetTargetClass(AssemblyDefinition assembly)
         {
-            return assembly.GetType("SomeClass");
+            ModuleDefinition mainModule = assembly.MainModule;
+            return mainModule.GetType("", "Pickup");
         }
 
-        public MethodInfo? GetTargetMethod(Assembly assembly)
+        public MethodDefinition GetTargetMethod(AssemblyDefinition assembly)
         {
-            return GetTargetClass(assembly)?.GetMethod("SomeMethod");
+            return GetTargetClass(assembly)?.GetMethod("Start");
         }
-        public void PatchingMethod()
+#nullable disable
+        public static void PatchingMethod()
         {
-
+            //File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), "HelloFromPatch.txt"), "This is from the patch method.");
+            Console.WriteLine("Hello from patching method.");
         }
     }
 }

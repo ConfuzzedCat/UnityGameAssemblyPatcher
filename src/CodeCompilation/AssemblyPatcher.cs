@@ -1,20 +1,26 @@
-﻿using Serilog;
-using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using Mono.Cecil;
+using Serilog;
 using System.Reflection;
-using System.Text;
-using System.Threading.Tasks;
+using UnityGameAssemblyPatcher.Enums;
+using UnityGameAssemblyPatcher.PatchFramework;
 using UnityGameAssemblyPatcher.Utilities;
 
 namespace UnityGameAssemblyPatcher.CodeCompilation
 {
     internal class AssemblyPatcher
     {
+
+        private const string EntryMessageTemplate = "Found Entry for patch at: {0}";
+        private const string PatchingGameMessageTemplate = "Patching game at given path: {0}";
+        private const string CompilingPatchesMessage = "Compiling patches. Only new files will be compiled.";
+        private const string ApplyPatchMessageTemplate = "Applying patch: {0}";
+        private const string PatchesFoundMessageTemplate = "Found {0} patches. Only new or modified patches will be compiled.";
+
         private static AssemblyPatcher instance;
 
         private ILogger logger;
-        private Assembly gameAssembly;
+        private AssemblyDefinition gameAssembly;
+        private string gameTarget;
 
         internal static AssemblyPatcher GetInstance()
         {
@@ -23,61 +29,59 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
 
         private AssemblyPatcher()
         {
-            logger = Logging.GetInstance();
+            logger = Logging.GetLogger<AssemblyPatcher>();
         }
 
-        internal void Patch()
+        internal void Patch(string gamePath)
         {
-            Console.Write("Give the path for game to be patched: ");
-            string? gamePath = Console.ReadLine();
-
-            while(gamePath == null || !Directory.Exists(gamePath))
-            {
-                Console.Clear();
-                Console.Write("Invalid path for the game. Type it again: ");
-                gamePath = Console.ReadLine();
-            }
-
-            Patch(gamePath);
-        }
-
-        private void Patch(string gamePath)
-        {
-            logger.Information("Patching game at given path: {0}", gamePath);
+            logger.Information(PatchingGameMessageTemplate, gamePath);
 
             string gameName = Utils.GetGameName(gamePath);
-
+            logger.Information("Game name: {0}", gameName);
             Utils.MakeDirectoriesInGameFolder(gamePath);
             Utils.MakeGameFilesInCurrentFolder(gameName, out bool didGameFolderExist);
             if(!didGameFolderExist)            
                 Utils.BackupGameAssembly(gamePath);
-            
-            gameAssembly = Assembly.LoadFrom(Utils.GetGameAssemblyFile(gamePath));
+            var gameAssemblyPath = Utils.GetGameAssemblyFile(gamePath);
+            gameAssembly = AssemblyDefinition.ReadAssembly(gameAssemblyPath, new ReaderParameters { ReadWrite = true });
+            gameTarget = Utils.GetTargetVersion(gameAssembly);
             foreach (var patch in CompilePatches(gamePath))
             {
-                // Do stuff
-                
+                logger.Information(ApplyPatchMessageTemplate, patch.Name);
+                ApplyPatch(patch);
             }
-
+            gameAssembly.Write();
+            gameAssembly.Dispose();
         }
 
         private IEnumerable<PatchInfo> CompilePatches(string gamePath)
         {
-            logger.Information("Compiling patches. Only new files will be compiled.");
+            logger.Information(CompilingPatchesMessage);
             string[] sourceFiles = Utils.GetAllSourcePatchFiles(gamePath);
-            //PatchInfo?[] patchesWithNulls = new PatchInfo?[sourceFiles.Length];
+            logger.Information(PatchesFoundMessageTemplate, sourceFiles.Length);
             for (int i = 0; i < sourceFiles.Length; i++)
             {
-                PatchInfo? a = new CodeCompiler().Compile(sourceFiles[i], gamePath);
+                PatchInfo? a = null;
+                try
+                {
+                    a = new CodeCompiler().Compile(sourceFiles[i], gamePath, gameTarget);
+                } catch (Exception e)
+                {
+                    logger.Error("There was an error while compiling the patch.\n{0}", e);
+                }
                 if (a is null)
                     continue;
                 yield return a;
             }
-            //return Utils.RemoveNullsAndResizeArray(patchesWithNulls, nullAssembliesAmount);
         }
-        private void ApplyPatch(Assembly patch)
+        private void ApplyPatch(PatchInfo patch)
         {
-
+            var entry = Utils.GetEntryTypeOfCompiledPatch(patch.Assembly);
+            logger.Information(EntryMessageTemplate, entry);
+            var assemblyInstance = (ICodeInjection)patch.Assembly.CreateInstance(entry.FullName)!;
+            var targetMethod = assemblyInstance.GetTargetMethod(gameAssembly);
+            (MethodInfo PatchMethod, InjectionLocation injectionLocation) patchingMethodTuple = assemblyInstance.GetPatchMethod();
+            ILMachine.Emit(gameAssembly.MainModule, ref targetMethod, patchingMethodTuple.PatchMethod, patchingMethodTuple.injectionLocation);
         }
     }
 }

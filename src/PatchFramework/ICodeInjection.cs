@@ -5,8 +5,7 @@ namespace UnityGameAssemblyPatcher.PatchFramework
 {
     public interface ICodeInjection
     {
-        public (MethodDefinition PatchMethod, InjectionLocation injectionLocation) GetPatchMethod();
-        public TypeDefinition GetTargetClass(AssemblyDefinition assembly);
+        public (MethodInfo PatchMethod, InjectionLocation injectionLocation) GetPatchMethod();
         public MethodDefinition GetTargetMethod(AssemblyDefinition assembly);
     }
 }

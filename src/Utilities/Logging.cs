@@ -4,19 +4,20 @@ namespace UnityGameAssemblyPatcher
 {
     internal class Logging
     {
-        private static ILogger Instance;
+        private static ILogger instance;
         private static ILogger CreateLogger()
         {
             return new LoggerConfiguration()
                 .WriteTo
                 .File(  "UnityGamePatcher.txt"
-                        , rollingInterval: RollingInterval.Hour)
+                        , rollingInterval: RollingInterval.Hour,
+                        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level}] ({SourceContext}) - {Message}{NewLine}")
                 .CreateLogger();
         }
 
-        internal static ILogger GetInstance()
+        internal static ILogger GetLogger<T>()
         {
-            return Instance ??= CreateLogger();
+            return (instance ??= CreateLogger()).ForContext<T>();
         }
     }
 }

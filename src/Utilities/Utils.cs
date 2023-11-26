@@ -1,19 +1,17 @@
 ﻿using Mono.Cecil;
 using Serilog;
-using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using UnityGameAssemblyPatcher.Exceptions;
 using UnityGameAssemblyPatcher.PatchFramework;
-using UnityGameAssemblyPatcher.Utilities;
 
 namespace UnityGameAssemblyPatcher.Utilities
 {
     internal class Utils
     {
-        private static readonly ILogger logger = Logging.GetInstance();
+        private static readonly ILogger logger = Logging.GetLogger<Utils>();
 
         internal static string[] GetHeaderCommentLines(string file)
         {
@@ -167,7 +165,7 @@ namespace UnityGameAssemblyPatcher.Utilities
                     sb.AppendLine(line);
                 }
             }
-            Console.WriteLine(sb.ToString());
+            //Console.WriteLine(sb.ToString());
             return sb.ToString();
         }
 
@@ -195,7 +193,7 @@ namespace UnityGameAssemblyPatcher.Utilities
                     derivedTypes.Add(type);
                 }
             }
-            if(derivedTypes.Count > 0)
+            if(derivedTypes.Count > 1)
             {
                 string typesFormattedForError = MulitpleCompiledPatchEntryClassesException.FormatTypesForErrorMessage(derivedTypes);
                 string errorMessage = string.Format("Compiled patch: \"{0}\", found multiple classes of type: {1}. Types found: {2}.",
@@ -254,7 +252,7 @@ namespace UnityGameAssemblyPatcher.Utilities
         internal static string GetGameAssemblyFolder(string gamePath)
         {
             string? gameDataFolder = Directory.GetDirectories(gamePath)
-                            .FirstOrDefault(path => path.EndsWith(
+                            .First(path => path.EndsWith(
                                 "_Data",
                                 StringComparison.InvariantCultureIgnoreCase));
             if (gameDataFolder == null)
@@ -267,11 +265,17 @@ namespace UnityGameAssemblyPatcher.Utilities
                     e);
                 throw e;
             }
+            string[] gameDataDirs = Directory.GetDirectories(gameDataFolder);
+            string? gameAssemblyFolder = gameDataDirs
+                .First(path =>
+                {
+                    path = new DirectoryInfo(path).Name;
+                    
 
-            string? gameAssemblyFolder = Directory.GetDirectories(gameDataFolder)
-                .FirstOrDefault(path => path.Equals(
-                    "Managed",
-                    StringComparison.InvariantCultureIgnoreCase));
+                    return path.Equals(
+                                        "Managed",
+                                        StringComparison.InvariantCultureIgnoreCase);
+                });
             if (gameAssemblyFolder == null)
             {
                 IOException e = new("No directory the name with \"Managed\"");
@@ -305,14 +309,15 @@ namespace UnityGameAssemblyPatcher.Utilities
             File.Copy(gameAssemblyFile, gameAssemblyBackupFile + ".dll", false);
         }
 
-        internal static void RestoreGameAssembly(string gameName)
+        internal static void RestoreGameAssembly(string gamePath)
         {
+            string gameName = GetGameName(gamePath);
             string gamesFolder = Path.Combine(Directory.GetCurrentDirectory(), "Games");
             string gameAssemblyBackupFile = Path.Combine(gamesFolder, gameName);
 
             if (File.Exists(gameAssemblyBackupFile + ".dll"))
             {
-                string gameAssemblyFile = GetGameAssemblyFile(gameName);
+                string gameAssemblyFile = GetGameAssemblyFile(gamePath);
                 File.Copy(gameAssemblyBackupFile + ".dll", gameAssemblyFile, true);
                 logger.Information("Game assembly restored successfully.");
             }
@@ -355,7 +360,8 @@ namespace UnityGameAssemblyPatcher.Utilities
 
         internal static string[] GetAllSourcePatchFiles(string gamePath)
         {
-            throw new NotImplementedException();
+            string patchSourcePath = Path.Combine(gamePath, "Patches");
+            return Directory.GetFiles(patchSourcePath, "*.cs");
         }
 
         internal static T[] ResizeArray<T>(T[] oldArray, int newSize)
@@ -385,23 +391,13 @@ namespace UnityGameAssemblyPatcher.Utilities
             }           
             return newArray;
         }
-        internal static string? GetTargetVersion(AssemblyDefinition assemblyDefinition)
+        internal static string GetTargetVersion(AssemblyDefinition assemblyDefinition)
         {
-            Console.WriteLine("\n\n");
-
-            foreach (var typeDefinition in assemblyDefinition.MainModule.Types)
-            {
-                Console.WriteLine(typeDefinition.Name);
-            }
-
-            Console.WriteLine("\n\n");
-
-
             foreach (var i in assemblyDefinition.CustomAttributes)
             {
                 if (i.AttributeType.Name.Equals("TargetFrameworkAttribute"))
                 {
-                    return (string)i.ConstructorArguments[0].Value;
+                    return (string)i.ConstructorArguments[0].Value ?? string.Empty;
                 }
             }
             return string.Empty;

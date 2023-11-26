@@ -8,6 +8,7 @@ using Serilog;
 using System.Reflection;
 using System.Text;
 using UnityGameAssemblyPatcher.PatchFramework;
+using UnityGameAssemblyPatcher.src.Exceptions;
 using UnityGameAssemblyPatcher.Utilities;
 
 namespace UnityGameAssemblyPatcher.CodeCompilation
@@ -16,34 +17,38 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
     {
         internal CodeCompiler()
         {
-            logger = Logging.GetInstance();
+            logger = Logging.GetLogger<CodeCompiler>();
         }
+
+        private const string ErrorMessageTemplate = "There was an error compiling the file: {0}.{1}";
+        private const string CompileMessageTemplate = "Compiled patch: {0} - checksum:{1}";
         private readonly ILogger logger;
         private readonly HashSet<PortableExecutableReference> References = new();
 
 
-        internal PatchInfo Compile(string sourceFilePath, string gamePath)
+        internal PatchInfo Compile(string sourceFilePath, string gamePath, string gameTargetVersion)
         {
-            string compiledPatchFile = Path.Combine(Directory.GetCurrentDirectory(), Path.GetFileNameWithoutExtension(sourceFilePath) + ".patch");
             string checksum = Utils.CalculateMD5Checksum(sourceFilePath);
 
             var info = Utils.ParsePatchComments(sourceFilePath, checksum);
+            string compiledPatchFile = Path.Combine(Directory.GetCurrentDirectory(), info.name + ".dll");
 
             string patchName = info.name;
-            string patchDesc = "";
+            string patchDesc = string.Empty;
             if (!string.IsNullOrEmpty(gamePath))
             {
                 string compiledPatchPath = Path.Combine(gamePath, "CompiledPatches");
                 if (!Directory.Exists(compiledPatchPath))
                     throw new IOException("CompiledPatches folder should exist, but it does not. Was it deleted externally?");
 
-                compiledPatchFile = Path.Combine(compiledPatchPath, Path.GetFileNameWithoutExtension(sourceFilePath) + ".patch");
+                compiledPatchFile = Path.Combine(compiledPatchPath, info.name + ".dll");
 
                 if (File.Exists(compiledPatchFile+".md5"))
                 {
                     string compiledChecksum = File.ReadAllText(compiledPatchFile + ".md5");
                     if(compiledChecksum.Equals(checksum, StringComparison.InvariantCultureIgnoreCase))
                     {
+                        logger.Information("patch isn't modified, loaded already compiled patch.");
                         Assembly _assembly = Assembly.LoadFrom(compiledPatchFile);
                         return new PatchInfo(patchName, patchDesc, checksum, _assembly);
                     }
@@ -59,7 +64,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
 
             // Base required references for the patch
             AddPatchFrameworkRefereneces();
-            //AddGameReferencesAndUnityLibrariesReferences(gamePath);
+
             AddNetCoreDefaultReferences();
 
             // Patch referenced libraries
@@ -85,24 +90,24 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
                         sb.AppendLine(diag.ToString());
                     }
                     string errorMessage = sb.ToString();
-                    logger.Error("There was an error compiling the file: \"{0}\".\nError message: {1}",
+                    logger.Error(ErrorMessageTemplate,
                         sourceFilePath,
                         errorMessage);
 
-                    throw new NullReferenceException(
-                        string.Format("There was an error compiling the file: \"{0}\".\nError message: {1}",
+                    throw new CompilerException(
+                        string.Format(ErrorMessageTemplate,
                             sourceFilePath,
                             errorMessage));
                 }
                 byte[] assemblyBytes = ((MemoryStream)codeStream).ToArray();
 
-                Assembly assembly = Assembly.Load(assemblyBytes);
 
 
                 File.WriteAllBytes(compiledPatchFile, assemblyBytes);
-                //File.WriteAllText(compiledPatchFile + ".md5", checksum);
-                logger.Information("Compiled patch: {0} - checksum:{1}", patchName, checksum);
-                Console.WriteLine("Compiled patch: {0} - checksum:{1}", patchName, checksum);
+                Assembly assembly = Assembly.LoadFrom(compiledPatchFile);
+                File.WriteAllText(compiledPatchFile + ".md5", checksum);
+                logger.Information(CompileMessageTemplate, patchName, checksum);
+                Console.WriteLine(CompileMessageTemplate, patchName, checksum);
                 return new PatchInfo(patchName, patchDesc, checksum, assembly);
             }
         }
@@ -114,7 +119,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
             AddAssembly(GetType());
             AddAssembly(typeof(ICodeInjection));
             AddAssembly(typeof(Enums.InjectionLocation));
-            AddAssembly(typeof(HarmonyLib.Harmony));
+            AddAssembly(typeof(AssemblyDefinition));
         }
 
         private void AddAssemblies(params string[] assemblies)
@@ -194,8 +199,6 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
         }
         private void AddPatchReferences(string[] references)
         {
-            //string[] references = Utils.ParsePatchLibraryReferences(file);
-
             if(references.Length == 0) 
                 return;
             AddAssemblies(references);
@@ -225,6 +228,14 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
                 rtPath + "netstandard.dll",
                 rtPath + "Microsoft.CSharp.dll"
             );
+        }
+        private void AddNetFrameworkDefaultReferences()
+        {
+            AddAssembly("mscorlib.dll");
+            AddAssembly("System.dll");
+            AddAssembly("System.Core.dll");
+            AddAssembly("Microsoft.CSharp.dll");
+            AddAssembly("System.Net.Http.dll");
         }
     }
 }

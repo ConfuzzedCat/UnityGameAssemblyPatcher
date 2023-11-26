@@ -9,7 +9,7 @@ namespace UnityGameAssemblyPatcher
         {
             return new LoggerConfiguration()
                 .WriteTo
-                .File(  "UnityGamePatcher.txt"
+                .File(  "UnityGamePatcher.log"
                         , rollingInterval: RollingInterval.Hour,
                         outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level}] ({SourceContext}) - {Message}{NewLine}")
                 .CreateLogger();

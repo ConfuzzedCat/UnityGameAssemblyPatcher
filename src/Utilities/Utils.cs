@@ -71,20 +71,34 @@ namespace UnityGameAssemblyPatcher.Utilities
         {
 
             string[] commentLines = GetHeaderCommentLines(file);
-            return ParsePatchLibraryReferences(commentLines);
+            return ParsePatchLibraryReferences(commentLines, Path.GetDirectoryName(file)!);
         }
 
-        internal static string[] ParsePatchLibraryReferences(string[] commentLines)
+        internal static string[] ParsePatchLibraryReferences(string[] commentLines, string gamePatchPath)
         {
+
             List<string> assemblyNames = new();
             foreach (string line in commentLines)
             {
-                if (line.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                if (line.StartsWith("@using ") 
+                    && (line.EndsWith(".dll;", StringComparison.OrdinalIgnoreCase) 
+                    || line.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
                 {
-                    assemblyNames.Add(line);
+                    string _line = line.Replace("@using ", "").Replace(";", "").Trim();
+                    if(!Path.IsPathFullyQualified(_line))
+                    {
+                        _line = GetAbsolutePath(gamePatchPath, _line);
+                    }
+                    assemblyNames.Add(_line);
                 }
             }
             return assemblyNames.ToArray();
+        }
+        internal static string GetAbsolutePath(string basePath, string relativePath)
+        {
+            string combinedPath = Path.Combine(basePath, relativePath);
+            string absolutePath = Path.GetFullPath(combinedPath);
+            return absolutePath;
         }
 
         internal static (string[] references, string name, string targetFramework) ParsePatchComments(string file, string checksum)
@@ -97,7 +111,7 @@ namespace UnityGameAssemblyPatcher.Utilities
             string[] lines = GetHeaderCommentLines(file);
 
 
-            returnTruple.references = ParsePatchLibraryReferences(lines);
+            returnTruple.references = ParsePatchLibraryReferences(lines, Path.GetDirectoryName(file)!);
             returnTruple.name = ParsePatchName(lines, checksum);
             returnTruple.targetFramework = ParsePatchTargetFramework(lines);
             return returnTruple;
@@ -222,12 +236,18 @@ namespace UnityGameAssemblyPatcher.Utilities
         internal static void MakeDirectoriesInGameFolder(string gamePath)
         {
             string patchSourcePath = Path.Combine(gamePath, "Patches");
+            string patchSourceLibPath = Path.Combine(patchSourcePath, "Lib");
             string patchCompiledPath = Path.Combine(gamePath, "CompiledPatches");
 
             if (!Directory.Exists(patchSourcePath))
             {
                 logger.Verbose("\"Patches\" folder didn't exist, creating...");
                 Directory.CreateDirectory(patchSourcePath);
+            }
+            if (!Directory.Exists(patchSourceLibPath))
+            {
+                logger.Verbose("\"Lib\" folder didn't exist, creating...");
+                Directory.CreateDirectory(patchSourceLibPath);
             }
             if (!Directory.Exists(patchCompiledPath))
             {
@@ -390,6 +410,15 @@ namespace UnityGameAssemblyPatcher.Utilities
                 }
             }           
             return newArray;
+        }
+        internal static string GetTargetVersion(string file)
+        {
+            string version = string.Empty;
+            using (AssemblyDefinition asmDef = AssemblyDefinition.ReadAssembly(file))
+            {
+                version = GetTargetVersion(asmDef);
+            }
+            return version;
         }
         internal static string GetTargetVersion(AssemblyDefinition assemblyDefinition)
         {

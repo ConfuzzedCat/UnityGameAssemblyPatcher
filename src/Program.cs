@@ -9,7 +9,7 @@ namespace UnityGameAssemblyPatcher
         private const string InvalidPathForGameString = "Invalid path for the game. Type it again: ";
         static void Main(string[] args)
         {
-            string? gamePath = string.Empty;
+            string? gamePath;
             switch (args.Length)
             {
                 case 0:
@@ -19,8 +19,8 @@ namespace UnityGameAssemblyPatcher
                     return;
                 case 1:
                     if (
-                        args[0].Equals("-r") ||
-                        args[0].Equals("-restore") ||
+                        args[0].Equals("-r")        ||
+                        args[0].Equals("-restore")  ||
                         args[0].Equals("--restore")
                         )
                     {
@@ -30,6 +30,17 @@ namespace UnityGameAssemblyPatcher
                         Console.ReadKey();
                         return;
                     }
+                    if (
+                        args[0].Equals("-h")     ||
+                        args[0].Equals("-help")  ||
+                        args[0].Equals("--help")
+                        )
+                    {
+                        Console.WriteLine("UnityGameAssemblyPatcher.exe                             : To patch an game's assembly.");
+                        Console.WriteLine("UnityGameAssemblyPatcher.exe (-r,-restore,--restore)     : To restore an game's assembly.");
+                        Console.WriteLine("UnityGameAssemblyPatcher.exe (-h,-help,--help)           : To show this.");
+                        return;
+                    }
                     break;
             }
             string argsLine = string.Empty;
@@ -37,7 +48,7 @@ namespace UnityGameAssemblyPatcher
             {
                 argsLine += " " + item;
             }
-            Console.WriteLine("Too many arguments: {0}", argsLine);
+            Console.WriteLine("Invalid argument(s): {0}", argsLine);
         }
 
         private static string GetGamePath()

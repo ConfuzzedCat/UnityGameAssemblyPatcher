@@ -140,6 +140,8 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
             if (!File.Exists(file))
             {
                 string? path = Path.GetDirectoryName(typeof(object).Assembly.Location);
+                if(path is null) 
+                    return false;
                 file = Path.Combine(path, assemblyDll);
                 if(!File.Exists(file))
                     return false;

@@ -7,7 +7,7 @@ namespace UnityGameAssemblyPatcher
     internal class Program
     {
         private const string GivePathForGameString = "Give the path for game to be patched: ";
-        private const string InvalidPathForGameString = "Invalid path for the game. Type it again: ";
+        private const string InvalidPathForGameString = "Invalid path for the game.";
         private const string HelpString = "UnityGameAssemblyPatcher.exe                             : To patch an game's assembly.\n" +
                                           "UnityGameAssemblyPatcher.exe (-d,-dir,--directory)       : To patch an game's assembly at given directory.\n" +
                                           "UnityGameAssemblyPatcher.exe (-r,-restore,--restore)     : To restore an game's assembly.\n" +
@@ -29,23 +29,23 @@ namespace UnityGameAssemblyPatcher
                         args[0].Equals("-restore")  ||
                         args[0].Equals("--restore")
                         )
-                    {
-                        gamePath = GetGamePath();
-                        Utils.RestoreGameAssembly(gamePath);
-                        Console.WriteLine("Restored game assembly file.");
-                        Console.ReadKey();
-                        return;
-                    }
-                    if (
-                        args[0].Equals("-h")     ||
-                        args[0].Equals("-help")  ||
-                        args[0].Equals("--help")
+                        {
+                            gamePath = ValidateDir(GetGamePath());
+                            Utils.RestoreGameAssembly(gamePath);
+                            Console.WriteLine("Restored game assembly file.");
+                            Console.ReadKey();
+                            return;
+                        }
+                        if (
+                            args[0].Equals("-h")     ||
+                            args[0].Equals("-help")  ||
+                            args[0].Equals("--help")
                         )
-                    {
-                        Console.WriteLine(HelpString);
-                        return;
-                    }
-                    break;
+                        {
+                            Console.WriteLine(HelpString);
+                            return;
+                        }
+                        break;
                 case 2:
                     if (
                         args[0].Equals("-d")            ||
@@ -71,17 +71,22 @@ namespace UnityGameAssemblyPatcher
         private static string GetGamePath()
         {
             Console.Write(GivePathForGameString);
-            string? gamePath = Console.ReadLine();
-            return ValidateDir(gamePath);
+            string? gamePath;
+            do
+            {
+                gamePath = Console.ReadLine();
+            } while (string.IsNullOrEmpty(gamePath));
+
+            return gamePath;
         }
 
-        private static string ValidateDir(string? gamePath)
+        private static string ValidateDir(string gamePath)
         {
-            while (gamePath == null || !Directory.Exists(gamePath))
+            while (!Directory.Exists(gamePath))
             {
                 Console.Clear();
                 Console.Write(InvalidPathForGameString);
-                gamePath = Console.ReadLine();
+                gamePath = GetGamePath();
             }
             return gamePath;
         }

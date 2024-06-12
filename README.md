@@ -101,9 +101,9 @@ I made to learn more about Mono.Cecil, and to have a tool to patch Unity games, 
 I Also made to patch games "quicker" in the sense that I don't have to open Visual Studio, create a new project, add MelonLoader, etc.
 
 ## Libraries used
-- [HarmonyX]()
-- [Microsoft.CodeAnalysis.CSharp]()
-- [Serilog.Sinks.File]()
+- [HarmonyX](https://github.com/BepInEx/HarmonyX)
+- [Microsoft.CodeAnalysis.CSharp](https://www.nuget.org/packages/Microsoft.CodeAnalysis.CSharp/)
+- [Serilog.Sinks.File](https://www.nuget.org/packages/Serilog.Sinks.File/)
 
 ## Credits
 - [Rick Strahl](https://weblog.west-wind.com/posts/2022/Jun/07/Runtime-CSharp-Code-Compilation-Revisited-for-Roslyn)

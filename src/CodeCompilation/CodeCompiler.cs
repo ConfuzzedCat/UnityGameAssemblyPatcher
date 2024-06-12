@@ -17,13 +17,13 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
     {
         internal CodeCompiler()
         {
-            logger = Logging.GetLogger<CodeCompiler>();
+            _logger = Logging.GetLogger<CodeCompiler>();
         }
 
         private const string ErrorMessageTemplate = "There was an error compiling the file: {0}.{1}";
         private const string CompileMessageTemplate = "Compiled patch: {0} - checksum:{1}";
-        private readonly ILogger logger;
-        private readonly HashSet<PortableExecutableReference> References = new();
+        private readonly ILogger _logger;
+        private readonly HashSet<PortableExecutableReference> _references = new();
 
 
         internal PatchInfo Compile(string sourceFilePath, string gamePath, string gameTargetVersion)
@@ -48,7 +48,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
                     string compiledChecksum = File.ReadAllText(compiledPatchFile + ".md5");
                     if(compiledChecksum.Equals(checksum, StringComparison.InvariantCultureIgnoreCase))
                     {
-                        logger.Information("patch isn't modified, loaded already compiled patch.");
+                        _logger.Information("patch isn't modified, loaded already compiled patch.");
                         Assembly _assembly = Assembly.LoadFrom(compiledPatchFile);
                         return new PatchInfo(patchName, patchDesc, checksum, _assembly);
                     }
@@ -69,13 +69,16 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
 
             // Patch referenced libraries
             AddPatchReferences(info.references);
+            
+            // Add Unity libraries
+            AddGameReferencesAndUnityLibrariesReferences(gamePath);
 
             SyntaxTree syntaxTree = SyntaxFactory.ParseSyntaxTree(sourceAsText.Trim());
             CSharpCompilation compilation = CSharpCompilation.Create(patchName)
                 .WithOptions(new CSharpCompilationOptions(
                     OutputKind.DynamicallyLinkedLibrary,
                     optimizationLevel: OptimizationLevel.Release))
-                .WithReferences(References)
+                .WithReferences(_references)
                 .AddSyntaxTrees(syntaxTree);
             
             using (Stream codeStream = new MemoryStream())
@@ -90,7 +93,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
                         sb.AppendLine(diag.ToString());
                     }
                     string errorMessage = sb.ToString();
-                    logger.Error(ErrorMessageTemplate,
+                    _logger.Error(ErrorMessageTemplate,
                         sourceFilePath,
                         errorMessage);
 
@@ -106,7 +109,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
                 File.WriteAllBytes(compiledPatchFile, assemblyBytes);
                 Assembly assembly = Assembly.LoadFrom(compiledPatchFile);
                 File.WriteAllText(compiledPatchFile + ".md5", checksum);
-                logger.Information(CompileMessageTemplate, patchName, checksum);
+                _logger.Information(CompileMessageTemplate, patchName, checksum);
                 Console.WriteLine(CompileMessageTemplate, patchName, checksum);
                 return new PatchInfo(patchName, patchDesc, checksum, assembly);
             }
@@ -147,13 +150,13 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
                     return false;
             }
 
-            if(References.Any(r => r.FilePath == file))
+            if(_references.Any(r => r.FilePath == file))
                 return true;
 
             try
             {
                 PortableExecutableReference reference = MetadataReference.CreateFromFile(file);
-                References.Add(reference);
+                _references.Add(reference);
             }
             catch
             {
@@ -166,12 +169,12 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
         {
             try
             {
-                if (References.Any(r => r.FilePath == type.Assembly.Location))
+                if (_references.Any(r => r.FilePath == type.Assembly.Location))
                     return true;
 
                 PortableExecutableReference systemReference = 
                     MetadataReference.CreateFromFile(type.Assembly.Location);
-                References.Add(systemReference);
+                _references.Add(systemReference);
             }
             catch
             {

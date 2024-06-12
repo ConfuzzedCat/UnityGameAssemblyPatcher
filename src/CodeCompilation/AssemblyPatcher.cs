@@ -16,7 +16,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
         private const string ApplyPatchMessageTemplate = "Applying patch: {0}";
         private const string PatchesFoundMessageTemplate = "Found {0} patches. Only new or modified patches will be compiled.";
 
-        private static AssemblyPatcher instance;
+        private static AssemblyPatcher _instance;
 
         private ILogger logger;
         private AssemblyDefinition gameAssembly;
@@ -24,7 +24,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
 
         internal static AssemblyPatcher GetInstance()
         {
-            return instance ??= new();
+            return _instance ??= new AssemblyPatcher();
         }
 
         private AssemblyPatcher()
@@ -40,18 +40,25 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
             logger.Information("Game name: {0}", gameName);
             Utils.MakeDirectoriesInGameFolder(gamePath);
             Utils.MakeGameFilesInCurrentFolder(gameName, out bool didGameFolderExist);
-            if(!didGameFolderExist)            
+            if(!didGameFolderExist)
+            {
                 Utils.BackupGameAssembly(gamePath);
+            }
             var gameAssemblyPath = Utils.GetGameAssemblyFile(gamePath);
             gameAssembly = AssemblyDefinition.ReadAssembly(gameAssemblyPath, new ReaderParameters { ReadWrite = true });
             gameTarget = Utils.GetTargetVersion(gameAssembly);
-            foreach (var patch in CompilePatches(gamePath))
+            var patches = CompilePatches(gamePath);
+            var patchInfos = patches as PatchInfo[] ?? patches.ToArray();
+            if (patchInfos.Any())
             {
-                logger.Information(ApplyPatchMessageTemplate, patch.Name);
-                ApplyPatch(patch);
+                foreach (var patch in patchInfos)
+                {
+                    logger.Information(ApplyPatchMessageTemplate, patch.Name);
+                    ApplyPatch(patch);
+                }
+                gameAssembly.Write();
+                gameAssembly.Dispose();
             }
-            gameAssembly.Write();
-            gameAssembly.Dispose();
         }
 
         private IEnumerable<PatchInfo> CompilePatches(string gamePath)
@@ -78,7 +85,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
         {
             var entry = Utils.GetEntryTypeOfCompiledPatch(patch.Assembly);
             logger.Information(EntryMessageTemplate, entry);
-            var assemblyInstance = (ICodeInjection)patch.Assembly.CreateInstance(entry.FullName)!;
+            var assemblyInstance = (ICodeInjection)patch.Assembly.CreateInstance(entry.FullName!)!;
             var targetMethod = assemblyInstance.GetTargetMethod(gameAssembly);
             (MethodInfo PatchMethod, InjectionLocation injectionLocation) patchingMethodTuple = assemblyInstance.GetPatchMethod();
             ILMachine.Emit(gameAssembly.MainModule, ref targetMethod, patchingMethodTuple.PatchMethod, patchingMethodTuple.injectionLocation);

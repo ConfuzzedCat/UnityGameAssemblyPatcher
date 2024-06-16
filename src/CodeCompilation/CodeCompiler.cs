@@ -63,7 +63,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
             }
 
             // Base required references for the patch
-            AddPatchFrameworkRefereneces();
+            AddPatchFrameworkReferences();
 
             AddNetCoreDefaultReferences();
 
@@ -117,7 +117,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
 
         
 
-        private void AddPatchFrameworkRefereneces()
+        private void AddPatchFrameworkReferences()
         {
             AddAssembly(GetType());
             AddAssembly(typeof(ICodeInjection));

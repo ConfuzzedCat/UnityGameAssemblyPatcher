@@ -71,8 +71,16 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
             AddPatchReferences(info.references);
             
             // Add Unity libraries
-            AddGameReferencesAndUnityLibrariesReferences(gamePath);
+            AddUnityCoreModulesReferences(gamePath);
 
+            _logger.Debug("Compiling {0} with references: ", patchName);
+            Console.WriteLine("Compiling {0} with references: ", patchName);
+            foreach (PortableExecutableReference reference in _references)
+            {
+                Console.WriteLine("\t{0}", reference.FilePath);
+                _logger.Debug("\t{0}", reference.FilePath);
+            }
+            
             SyntaxTree syntaxTree = SyntaxFactory.ParseSyntaxTree(sourceAsText.Trim());
             CSharpCompilation compilation = CSharpCompilation.Create(patchName)
                 .WithOptions(new CSharpCompilationOptions(
@@ -182,7 +190,16 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
             }
             return true;
         }
+        
+        private void AddUnityCoreModulesReferences(string gamePath)
+        {
+            string gameAssemblyFolder = Utils.GetGameAssemblyFolder(gamePath);
 
+            string assembly = Path.Combine(gameAssemblyFolder, "UnityEngine.CoreModule.dll");
+
+            AddAssemblies(assembly);
+        }
+        
         private void AddGameReferencesAndUnityLibrariesReferences(string gamePath)
         {
             string gameAssemblyFolder = Utils.GetGameAssemblyFolder(gamePath);

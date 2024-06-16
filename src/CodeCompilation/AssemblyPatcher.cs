@@ -1,6 +1,8 @@
 ﻿using Mono.Cecil;
 using Serilog;
 using System.Reflection;
+using Mono.Cecil.Cil;
+using Mono.Cecil.Rocks;
 using UnityGameAssemblyPatcher.Enums;
 using UnityGameAssemblyPatcher.PatchFramework;
 using UnityGameAssemblyPatcher.Utilities;
@@ -32,34 +34,59 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
             logger = Logging.GetLogger<AssemblyPatcher>();
         }
 
-        internal void Patch(string gamePath)
-        {
-            logger.Information(PatchingGameMessageTemplate, gamePath);
+            internal void Patch(string gamePath)
+            {
+                logger.Information(PatchingGameMessageTemplate, gamePath);
 
-            string gameName = Utils.GetGameName(gamePath);
-            logger.Information("Game name: {0}", gameName);
-            Utils.MakeDirectoriesInGameFolder(gamePath);
-            Utils.MakeGameFilesInCurrentFolder(gameName, out bool didGameFolderExist);
-            if(!didGameFolderExist)
-            {
-                Utils.BackupGameAssembly(gamePath);
-            }
-            var gameAssemblyPath = Utils.GetGameAssemblyFile(gamePath);
-            gameAssembly = AssemblyDefinition.ReadAssembly(gameAssemblyPath, new ReaderParameters { ReadWrite = true });
-            gameTarget = Utils.GetTargetVersion(gameAssembly);
-            var patches = CompilePatches(gamePath);
-            var patchInfos = patches as PatchInfo[] ?? patches.ToArray();
-            if (patchInfos.Any())
-            {
-                foreach (var patch in patchInfos)
+                string gameName = Utils.GetGameName(gamePath);
+                logger.Information("Game name: {0}", gameName);
+                Utils.MakeDirectoriesInGameFolder(gamePath);
+                Utils.MakeGameFilesInCurrentFolder(gameName, out bool didGameFolderExist);
+                if(!didGameFolderExist)
                 {
-                    logger.Information(ApplyPatchMessageTemplate, patch.Name);
-                    ApplyPatch(patch);
+                    Utils.BackupGameAssembly(gamePath);
                 }
-                gameAssembly.Write();
-                gameAssembly.Dispose();
+                var gameAssemblyPath = Utils.GetGameAssemblyFile(gamePath);
+                
+                var resolver = new DefaultAssemblyResolver();
+                resolver.AddSearchDirectory(Path.GetDirectoryName(gameAssemblyPath));
+                var readerParameters = new ReaderParameters
+                {
+                    ReadWrite = true,
+                    AssemblyResolver = resolver,
+                    ReadSymbols = false
+                };
+                
+                gameAssembly = AssemblyDefinition.ReadAssembly(gameAssemblyPath, readerParameters);
+                gameTarget = Utils.GetTargetVersion(gameAssembly);
+                var patches = CompilePatches(gamePath);
+                var patchInfos = patches as PatchInfo[] ?? patches.ToArray();
+                if (patchInfos.Any())
+                {
+                    foreach (var patch in patchInfos)
+                    {
+                        logger.Information(ApplyPatchMessageTemplate, patch.Name);
+                        ApplyPatch(patch);
+                    }
+                    
+                    if (gameAssembly.MainModule.HasTypes && gameAssembly.MainModule.Types.Any())
+                    {
+                        logger.Information("Assembly state is valid. Proceeding to write the assembly.");
+                    }
+                    else
+                    {
+                        logger.Warning("Assembly state is invalid. Aborting the write operation.");
+                        return;
+                    }
+                    var writerParameters = new WriterParameters
+                    {
+                        WriteSymbols = false, 
+                    };
+
+                    gameAssembly.Write(writerParameters);
+                    gameAssembly.Dispose();
+                }
             }
-        }
 
         private IEnumerable<PatchInfo> CompilePatches(string gamePath)
         {
@@ -83,6 +110,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
         }
         private void ApplyPatch(PatchInfo patch)
         {
+            // TODO: check if target is in the assembly
             var entry = Utils.GetEntryTypeOfCompiledPatch(patch.Assembly);
             logger.Information(EntryMessageTemplate, entry);
             var assemblyInstance = (ICodeInjection)patch.Assembly.CreateInstance(entry.FullName!)!;

@@ -4,8 +4,11 @@ using System.Reflection;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
+using HarmonyLib;
+using UnityGameAssemblyPatcher.Enums;
 using UnityGameAssemblyPatcher.Exceptions;
 using UnityGameAssemblyPatcher.PatchFramework;
+using Patch = UnityGameAssemblyPatcher.CodeCompilation.Patch;
 
 namespace UnityGameAssemblyPatcher.Utilities
 {
@@ -57,14 +60,8 @@ namespace UnityGameAssemblyPatcher.Utilities
 
         internal static string ParsePatchName(string[] commentLines, string checksum)
         {
-            foreach (string line in commentLines)
-            {
-                if (line.StartsWith("@Name="))
-                {
-                    return line.Replace("@Name=", "").Trim();
-                }
-            }
-            return $"UnnamedPatch({checksum})";
+            string? name = ParseLine(commentLines, "@Name=");
+            return string.IsNullOrEmpty(name) ? $"UnnamedPatch({checksum})" : name;
         }
 
         internal static string[] ParsePatchLibraryReferences(string file)
@@ -101,30 +98,143 @@ namespace UnityGameAssemblyPatcher.Utilities
             return absolutePath;
         }
 
-        internal static (string[] references, string name, string targetFramework) ParsePatchComments(string file, string checksum)
+        internal static Patch ParsePatchComments(string file, string checksum)
         {
-            (string[] references, 
-            string name, 
-            string targetFramework) 
-                returnTruple = new();
-
             string[] lines = GetHeaderCommentLines(file);
+            
+            string            name = ParsePatchName(lines, checksum);
+            string            desc = string.Empty; //TODO: add parser for description.
+            string[]          references = ParsePatchLibraryReferences(lines, Path.GetDirectoryName(file)!);
+            string            fileLocation = null;
+            
+            string            targetFramework = ParsePatchTargetFramework(lines);
+            string            targetAssembly = ParseTargetAssembly(lines);
+            string            targetModule = ParseTargetModule(lines);
+            string            targetNamespace = ParseTargetNamespace(lines);
+            string            targetClass = ParseTargetClass(lines);
+            string            targetMethod = ParseTargetMethod(lines);
+            InjectionLocation targetLocation = ParseTargetLocation(lines);
 
+            string            patchClass = ParsePatchClass(lines);
+            string            patchMethod = ParsePatchMethod(lines);
+            
+            return new Patch(
+                name,
+                desc,
+                references,
+                checksum,
+                fileLocation,
+                targetFramework,
+                targetAssembly,
+                targetModule,
+                targetNamespace,
+                targetClass,
+                targetMethod,
+                targetLocation,
+                patchClass,
+                patchMethod);
+        }
 
-            returnTruple.references = ParsePatchLibraryReferences(lines, Path.GetDirectoryName(file)!);
-            returnTruple.name = ParsePatchName(lines, checksum);
-            returnTruple.targetFramework = ParsePatchTargetFramework(lines);
-            return returnTruple;
+        private static string ParseTargetNamespace(string[] lines)
+        {
+            string? tmodule = ParseLine(lines, "@TargetModule=");
+            if (string.IsNullOrEmpty(tmodule))
+            {
+                return "MainModule";
+            }
+            return tmodule;
+        }
+
+        private static string ParseTargetModule(string[] lines)
+        {
+            string? tnamespace = ParseLine(lines, "@TargetNamespace=");
+            if (string.IsNullOrEmpty(tnamespace))
+            {
+                return "";
+            }
+            return tnamespace;
+        }
+
+        private static string ParsePatchMethod(string[] lines)
+        {
+            string? pmethod = ParseLine(lines, "@PatchMethod=");
+            if (string.IsNullOrEmpty(pmethod))
+            {
+                throw new ArgumentNullException(nameof(lines),"Argument \"@PatchMethod\" in patch was empty.");
+            }
+            return pmethod;
+        }
+
+        private static string ParsePatchClass(string[] lines)
+        {
+            string? pclass = ParseLine(lines, "@PatchClass=");
+            if (string.IsNullOrEmpty(pclass))
+            {
+                throw new ArgumentNullException(nameof(lines),"Argument \"@PatchClass\" in patch was empty.");
+            }
+            return pclass;
+        }
+
+        private static InjectionLocation ParseTargetLocation(string[] lines)
+        {
+            string? tloc = ParseLine(lines, "@TargetLocation=");
+            if (string.IsNullOrEmpty(tloc))
+            {
+                throw new ArgumentNullException(nameof(lines),"Argument \"@TargetLocation\" in patch was empty.");
+            }
+
+            if (Enum.TryParse(tloc, out InjectionLocation location))
+            {
+                return location;
+            }
+
+            string validLoc = Enum.GetNames(typeof(InjectionLocation)).Join();
+            throw new ArgumentException($"{tloc} is a invalid target injection location. Valid inputs: {validLoc}.");
+        }
+
+        private static string ParseTargetMethod(string[] lines)
+        {
+            string? tmethod = ParseLine(lines, "@TargetMethod=");
+            if (string.IsNullOrEmpty(tmethod))
+            {
+                throw new ArgumentNullException(nameof(lines),"Argument \"@TargetMethod\" in patch was empty.");
+            }
+            return tmethod;
+        }
+
+        private static string ParseTargetClass(string[] lines)
+        {
+            string? tclass = ParseLine(lines, "@TargetClass=");
+            if (string.IsNullOrEmpty(tclass))
+            {
+                throw new ArgumentNullException(nameof(lines),"Argument \"@TargetClass\" in patch was empty.");
+            }
+            return tclass;
+        }
+
+        private static string ParseTargetAssembly(string[] lines)
+        {
+            string? target = ParseLine(lines, "@TargetAssembly=");
+            
+            if (!string.IsNullOrEmpty(target))
+            {
+                return target.Contains(Path.DirectorySeparatorChar) ? Path.GetFileName(target) : target;
+            }
+            return "Assembly-CSharp.dll";
+        }
+
+        internal static bool DoesAssemblyExist(string file, string gamePath)
+        {
+            string managedDir = GetGameAssemblyFolder(gamePath);
+            return File.Exists(Path.Combine(managedDir, file));
         }
 
         internal static string ParsePatchTargetFramework(string[] lines)
         {
-            foreach (string line in lines)
+            var patchTargetFramework = ParseLine(lines, "@TargetFramework=");
+            if (patchTargetFramework != null)
             {
-                if (line.StartsWith("@TargetFramework="))
-                {
-                    return line.Replace("@TargetFramework=", "").Trim();
-                }
+                return patchTargetFramework;
             }
 
             string? version = Assembly.GetExecutingAssembly()
@@ -135,6 +245,19 @@ namespace UnityGameAssemblyPatcher.Utilities
                 throw new NullReferenceException("Couldn't resolve Target Framework of both patch and this program.");
             }
             return version;
+        }
+
+        private static string? ParseLine(string[] lines, string parseString)
+        {
+            foreach (string line in lines)
+            {
+                if (line.StartsWith(parseString))
+                {
+                    return line.Replace(parseString, "").Trim();
+                }
+            }
+
+            return null;
         }
 
         internal static string GetSourceCode(string file, string targetFramework)
@@ -315,6 +438,7 @@ namespace UnityGameAssemblyPatcher.Utilities
 
         internal static string GetGameName(string gamePath)
         {
+            //TODO: make it platform independent
             string gameFile = Directory.GetFiles(gamePath, "*.exe").First(file => !file.Contains("unity", StringComparison.InvariantCultureIgnoreCase));            
             return Path.GetFileNameWithoutExtension(gameFile);
         }

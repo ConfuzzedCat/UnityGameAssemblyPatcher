@@ -20,7 +20,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
 
         internal static ILogger logger = Logging.GetLogger<ILMachine>();
         
-        internal static bool Emit(ModuleDefinition module, ref MethodDefinition method, MethodInfo patchMethod, InjectionLocation loc)
+        internal static bool Emit(ModuleDefinition module, ref MethodDefinition method, MethodDefinition patchMethod, InjectionLocation loc)
         {
             if (!method.HasBody)
             {

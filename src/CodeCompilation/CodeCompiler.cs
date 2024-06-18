@@ -26,22 +26,20 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
         private readonly HashSet<PortableExecutableReference> _references = new();
 
 
-        internal PatchInfo Compile(string sourceFilePath, string gamePath, string gameTargetVersion)
+        internal Patch Compile(string sourceFilePath, string gamePath, string gameTargetVersion)
         {
             string checksum = Utils.CalculateMD5Checksum(sourceFilePath);
 
-            var info = Utils.ParsePatchComments(sourceFilePath, checksum);
-            string compiledPatchFile = Path.Combine(Directory.GetCurrentDirectory(), info.name + ".dll");
-
-            string patchName = info.name;
-            string patchDesc = string.Empty;
+            var patch = Utils.ParsePatchComments(sourceFilePath, checksum);
+            string compiledPatchFile = Path.Combine(Directory.GetCurrentDirectory(), patch.Name + ".dll");
+            
             if (!string.IsNullOrEmpty(gamePath))
             {
                 string compiledPatchPath = Path.Combine(gamePath, "CompiledPatches");
                 if (!Directory.Exists(compiledPatchPath))
                     throw new IOException("CompiledPatches folder should exist, but it does not. Was it deleted externally?");
 
-                compiledPatchFile = Path.Combine(compiledPatchPath, info.name + ".dll");
+                compiledPatchFile = Path.Combine(compiledPatchPath, patch.Name + ".dll");
 
                 if (File.Exists(compiledPatchFile+".md5"))
                 {
@@ -49,14 +47,27 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
                     if(compiledChecksum.Equals(checksum, StringComparison.InvariantCultureIgnoreCase))
                     {
                         _logger.Information("patch isn't modified, loaded already compiled patch.");
-                        Assembly _assembly = Assembly.LoadFrom(compiledPatchFile);
-                        return new PatchInfo(patchName, patchDesc, checksum, _assembly);
+                        return new Patch(
+                            patch.Name,
+                            patch.Description, 
+                            patch.References,
+                            patch.Checksum,
+                            compiledPatchFile,
+                            patch.TargetFramework,
+                            patch.TargetAssembly,
+                            patch.TargetModule,
+                            patch.TargetNamespace,
+                            patch.TargetClass,
+                            patch.TargetMethod,
+                            patch.TargetLocation,
+                            patch.PatchClass,
+                            patch.PatchMethod);
                     }
                 }
             }
 
             Console.WriteLine("getting sources code");
-            string sourceAsText = Utils.GetSourceCode(sourceFilePath, info.targetFramework);
+            string sourceAsText = Utils.GetSourceCode(sourceFilePath, patch.TargetFramework);
             if (string.IsNullOrEmpty(sourceAsText))
             {
                 throw new IOException("Patch file was found, but it was empty.");
@@ -68,13 +79,13 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
             AddNetCoreDefaultReferences();
 
             // Patch referenced libraries
-            AddPatchReferences(info.references);
+            AddPatchReferences(patch.References);
             
             // Add Unity libraries
             AddUnityCoreModulesReferences(gamePath);
             
             SyntaxTree syntaxTree = SyntaxFactory.ParseSyntaxTree(sourceAsText.Trim());
-            CSharpCompilation compilation = CSharpCompilation.Create(patchName)
+            CSharpCompilation compilation = CSharpCompilation.Create(patch.Name)
                 .WithOptions(new CSharpCompilationOptions(
                     OutputKind.DynamicallyLinkedLibrary,
                     optimizationLevel: OptimizationLevel.Release))
@@ -107,11 +118,25 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
 
 
                 File.WriteAllBytes(compiledPatchFile, assemblyBytes);
-                Assembly assembly = Assembly.LoadFrom(compiledPatchFile);
                 File.WriteAllText(compiledPatchFile + ".md5", checksum);
-                _logger.Information(CompileMessageTemplate, patchName, checksum);
-                Console.WriteLine(CompileMessageTemplate, patchName, checksum);
-                return new PatchInfo(patchName, patchDesc, checksum, assembly);
+                _logger.Information(CompileMessageTemplate, patch.Name, checksum);
+                Console.WriteLine(CompileMessageTemplate, patch.Name, checksum);
+
+                return new Patch(
+                    patch.Name,
+                    patch.Description,
+                    patch.References,
+                    patch.Checksum,
+                    compiledPatchFile,
+                    patch.TargetFramework,
+                    patch.TargetAssembly,
+                    patch.TargetModule,
+                    patch.TargetNamespace,
+                    patch.TargetClass,
+                    patch.TargetMethod,
+                    patch.TargetLocation,
+                    patch.PatchClass,
+                    patch.PatchMethod);
             }
         }
 

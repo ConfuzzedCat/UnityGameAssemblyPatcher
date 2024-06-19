@@ -1,40 +1,52 @@
-﻿using Mono.Cecil;
-using System.Reflection;
-using UnityGameAssemblyPatcher.Enums;
-using UnityGameAssemblyPatcher.Extensions;
+﻿/*
+*Optional*
+// If left empty, will default to "UnnamedPatch(checksum)"
+@Name=Test Patch
 
-namespace UnityGameAssemblyPatcher.PatchFramework
+*Optional*
+// This can be any file in the managed dir.
+// If left empty, will default to "Assembly-CSharp.dll"
+@TargetAssembly=Assembly-CSharp.dll
+
+*Optional*
+// If left empty, will default to "MainModule"
+@TargetModule=MainModule
+
+*Optional*
+// If left empty, will default to "" (empty string)
+@TargetNamespace=
+
+*required*
+// The class you want to add the reference to your method
+@TargetClass=SomeClass
+
+*required*
+// The method you want to add the reference to your method into
+@TargetMethod=Start
+
+*required*
+// The location you want the reference to be inserted at
+// Valid: Prefix, Postfix
+@TargetLocation=Prefix
+
+*required*
+// Name of the entry class to your patch
+// Needs to public
+@PatchClass=PatchClass
+
+*required*
+// Name of the entry method to your patch
+// Needs to be public and static
+@PatchMethod=PatchingMethod
+*/
+using System;
+using System.IO;
+
+public class PatchClass
 {
-    class ExampleCodeInjection : ICodeInjection
+    public static void PatchingMethod()
     {
-#nullable enable
-        public (MethodInfo PatchMethod, InjectionLocation injectionLocation) GetPatchMethod()
-        {
-            Assembly executingAssembly = Assembly.GetExecutingAssembly();
-            
-            // Get the location of the assembly file
-            string assemblyPath = executingAssembly.Location;
-
-            // Read the assembly into an AssemblyDefinition
-            AssemblyDefinition assemblyDefinition = AssemblyDefinition.ReadAssembly(assemblyPath);
-        
-            foreach (ModuleDefinition module in assemblyDefinition.Modules)
-            {
-                Console.WriteLine("patchmodule: " + module.Name);
-            }
-
-            return (typeof(ExampleCodeInjection).GetMethod(nameof(PatchingMethod))!, InjectionLocation.Postfix);
-        }
-        public MethodDefinition GetTargetMethod(AssemblyDefinition assembly)
-        {
-            var type = assembly.MainModule.GetType("", "Pickup");
-            return type!.GetMethod("Start");
-        }
-#nullable disable
-        public static void PatchingMethod()
-        {
-            File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), "HelloFromPatch.txt"), "This is from the patch method.");
-            Console.WriteLine("Hello from patching method.");
-        }
+        File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), "HelloFromPatch.txt"), "This is from the patch method.");
+        //Console.WriteLine("Hello from patching method.");
     }
 }

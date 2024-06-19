@@ -7,7 +7,6 @@ using Mono.Cecil;
 using Serilog;
 using System.Reflection;
 using System.Text;
-using UnityGameAssemblyPatcher.PatchFramework;
 using UnityGameAssemblyPatcher.src.Exceptions;
 using UnityGameAssemblyPatcher.Utilities;
 
@@ -28,7 +27,7 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
 
         internal Patch Compile(string sourceFilePath, string gamePath, string gameTargetVersion)
         {
-            string checksum = Utils.CalculateMD5Checksum(sourceFilePath);
+            string checksum = Utils.CalculateMd5Checksum(sourceFilePath);
 
             var patch = Utils.ParsePatchComments(sourceFilePath, checksum);
             string compiledPatchFile = Path.Combine(Directory.GetCurrentDirectory(), patch.Name + ".dll");
@@ -74,15 +73,15 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
             }
 
             // Base required references for the patch
-            AddPatchFrameworkReferences();
+            //AddPatchFrameworkReferences();
 
-            AddNetCoreDefaultReferences();
+            //AddNetCoreDefaultReferences();
 
             // Patch referenced libraries
             AddPatchReferences(patch.References);
             
             // Add Unity libraries
-            AddUnityCoreModulesReferences(gamePath);
+            AddGameReferencesAndUnityLibrariesReferences(gamePath);
             
             SyntaxTree syntaxTree = SyntaxFactory.ParseSyntaxTree(sourceAsText.Trim());
             CSharpCompilation compilation = CSharpCompilation.Create(patch.Name)
@@ -145,7 +144,6 @@ namespace UnityGameAssemblyPatcher.CodeCompilation
         private void AddPatchFrameworkReferences()
         {
             AddAssembly(GetType());
-            AddAssembly(typeof(ICodeInjection));
             AddAssembly(typeof(Enums.InjectionLocation));
             AddAssembly(typeof(AssemblyDefinition));
         }

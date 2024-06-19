@@ -6,8 +6,6 @@ using System.Security.Cryptography;
 using System.Text;
 using HarmonyLib;
 using UnityGameAssemblyPatcher.Enums;
-using UnityGameAssemblyPatcher.Exceptions;
-using UnityGameAssemblyPatcher.PatchFramework;
 using Patch = UnityGameAssemblyPatcher.CodeCompilation.Patch;
 
 namespace UnityGameAssemblyPatcher.Utilities
@@ -135,7 +133,7 @@ namespace UnityGameAssemblyPatcher.Utilities
                 patchMethod);
         }
 
-        private static string ParseTargetNamespace(string[] lines)
+        private static string ParseTargetModule(string[] lines)
         {
             string? tmodule = ParseLine(lines, "@TargetModule=");
             if (string.IsNullOrEmpty(tmodule))
@@ -145,7 +143,7 @@ namespace UnityGameAssemblyPatcher.Utilities
             return tmodule;
         }
 
-        private static string ParseTargetModule(string[] lines)
+        private static string ParseTargetNamespace(string[] lines)
         {
             string? tnamespace = ParseLine(lines, "@TargetNamespace=");
             if (string.IsNullOrEmpty(tnamespace))
@@ -223,10 +221,11 @@ namespace UnityGameAssemblyPatcher.Utilities
             return "Assembly-CSharp.dll";
         }
 
-        internal static bool DoesAssemblyExist(string file, string gamePath)
+        internal static bool DoesAssemblyExist(string file, string gamePath, out string absolutePath)
         {
             string managedDir = GetGameAssemblyFolder(gamePath);
-            return File.Exists(Path.Combine(managedDir, file));
+            absolutePath = Path.Combine(managedDir, file);
+            return File.Exists(absolutePath);
         }
 
         internal static string ParsePatchTargetFramework(string[] lines)
@@ -306,7 +305,7 @@ namespace UnityGameAssemblyPatcher.Utilities
             return sb.ToString();
         }
 
-        internal static string CalculateMD5Checksum(string file)
+        internal static string CalculateMd5Checksum(string file)
         {
             using (var md5 = MD5.Create())
             {
@@ -317,31 +316,7 @@ namespace UnityGameAssemblyPatcher.Utilities
                 }
             }
         }
-        internal static Type GetEntryTypeOfCompiledPatch(Assembly compiledPatchAssembly)
-        {
-            Type baseType = typeof(ICodeInjection);
-
-            List<Type> derivedTypes = new();
-
-            foreach (Type type in compiledPatchAssembly.GetTypes())
-            {
-                if (baseType.IsAssignableFrom(type) && type != baseType)
-                {
-                    derivedTypes.Add(type);
-                }
-            }
-            if(derivedTypes.Count > 1)
-            {
-                string typesFormattedForError = MulitpleCompiledPatchEntryClassesException.FormatTypesForErrorMessage(derivedTypes);
-                string errorMessage = string.Format("Compiled patch: \"{0}\", found multiple classes of type: {1}. Types found: {2}.",
-                    compiledPatchAssembly, 
-                    typeof(ICodeInjection).Name, 
-                    typesFormattedForError);
-                throw new MulitpleCompiledPatchEntryClassesException(errorMessage);
-            }
-            return derivedTypes[0];
-        }
-
+        
         internal static void MakeGameFilesInCurrentFolder(string gameName, out bool doesExist)
         {
             string gamesFolder = Path.Combine(Directory.GetCurrentDirectory(), "Games");
@@ -352,8 +327,16 @@ namespace UnityGameAssemblyPatcher.Utilities
                 doesExist = false;
                 return;
             }
-            
-            string gameNameHashFile = Path.Combine(gamesFolder, gameName+".md5");
+
+            string curGameFolder = Path.Combine(gamesFolder, gameName);
+            if (!Directory.Exists(curGameFolder))
+            {
+                logger.Verbose("Creating folder for current game in the games folder.");
+                Directory.CreateDirectory(curGameFolder);
+                doesExist = false;
+                return;
+            }
+            string gameNameHashFile = Path.Combine(curGameFolder, "Assembly-CSharp.dll.md5");
             doesExist = File.Exists(gameNameHashFile);
         }
         internal static void MakeDirectoriesInGameFolder(string gamePath)
@@ -431,9 +414,9 @@ namespace UnityGameAssemblyPatcher.Utilities
             return gameAssemblyFolder;
         }
 
-        internal static string CalculateMD5ChecksumOfGameAssembly(string gamePath)
+        internal static string CalculateMd5ChecksumOfGameAssembly(string gamePath)
         {            
-            return CalculateMD5Checksum(GetGameAssemblyFile(gamePath));
+            return CalculateMd5Checksum(GetGameAssemblyFile(gamePath));
         }
 
         internal static string GetGameName(string gamePath)
@@ -445,12 +428,30 @@ namespace UnityGameAssemblyPatcher.Utilities
 
         internal static void BackupGameAssembly(string gamePath)
         {
+            string gameName = GetGameName(gamePath);
             string gamesFolder = Path.Combine(Directory.GetCurrentDirectory(), "Games");
-            string gamesFolderGameAssemblyFileName = GetGameName(gamePath);
+            string curGameFolder = Path.Combine(gamesFolder, gameName);
             string gameAssemblyFile = GetGameAssemblyFile(gamePath);
-            string gameAssemblyBackupFile = Path.Combine(gamesFolder, gamesFolderGameAssemblyFileName);
-            File.WriteAllText(gameAssemblyBackupFile + ".md5", CalculateMD5ChecksumOfGameAssembly(gamePath));
-            File.Copy(gameAssemblyFile, gameAssemblyBackupFile + ".dll", false);
+            string gameAssemblyBackupFile = Path.Combine(curGameFolder, Path.GetFileName(gameAssemblyFile));
+            File.WriteAllText(gameAssemblyBackupFile + ".md5", CalculateMd5ChecksumOfGameAssembly(gamePath));
+            File.Copy(gameAssemblyFile, gameAssemblyBackupFile, false);
+        }
+
+        internal static void BackupOtherAssemblies(string gamePath, params string[] assemblies)
+        {
+            string gameName = GetGameName(gamePath);
+            string gamesFolder = Path.Combine(Directory.GetCurrentDirectory(), "Games");
+            string curGameFolder = Path.Combine(gamesFolder, gameName);
+            foreach (string file in assemblies)
+            {
+                string assemblyFile = GetAssemblyFile(file, gamePath);
+                string assemblyBackupFile = Path.Combine(curGameFolder, Path.GetFileName(assemblyFile));
+                if (!File.Exists(assemblyBackupFile))
+                {
+                    File.WriteAllText(assemblyBackupFile + ".md5", CalculateMd5Checksum(assemblyFile));
+                    File.Copy(assemblyFile, assemblyBackupFile, false);
+                }
+            }
         }
 
         internal static void RestoreGameAssembly(string gamePath)
@@ -478,7 +479,7 @@ namespace UnityGameAssemblyPatcher.Utilities
             string gameAssemblyBackupFile = Path.Combine(gamesFolder, gameName);
 
             string gameAssemblyBackupChecksumFile = gameAssemblyBackupFile + ".md5";
-            string currentAssemblyChecksum = CalculateMD5ChecksumOfGameAssembly(gameAssemblyFile);
+            string currentAssemblyChecksum = CalculateMd5ChecksumOfGameAssembly(gameAssemblyFile);
 
             if (File.Exists(gameAssemblyBackupChecksumFile))
             {
@@ -554,6 +555,15 @@ namespace UnityGameAssemblyPatcher.Utilities
                 }
             }
             return string.Empty;
+        }
+
+        public static string GetAssemblyFile(string assemblyFile, string gamePath)
+        {
+            if (DoesAssemblyExist(assemblyFile, gamePath, out string file))
+            {
+                return file;
+            }
+            throw new ArgumentException("Assembly file couldn't be found.", assemblyFile);
         }
     }
 }
